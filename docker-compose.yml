@@ -29,6 +29,10 @@ services:
       POSTGRES_USER: ${POSTGRES_USER:-postgres}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
       POSTGRES_DB: ${POSTGRES_DB:-vaultfoundry}
+      # initdb refuses to use a bind-mount point directly as PGDATA if it
+      # contains anything at all (even a dotfile like .gitkeep) — point it
+      # at a subdirectory of the mount instead, per Postgres's own advice.
+      PGDATA: /var/lib/postgresql/data/pgdata
     # Intentionally no `ports:` — Postgres is reachable only from other
     # containers on this compose network (i.e. the app), never from the host.
     volumes:
