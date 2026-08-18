@@ -1,6 +1,6 @@
 "use client";
 import { useEffect, useState } from "react";
-import { Pencil, Plus, Trash2, UserPlus, X } from "lucide-react";
+import { Pencil, Plus, Settings2, Trash2, UserPlus, X } from "lucide-react";
 
 interface Contact {
   id: string;
@@ -18,6 +18,14 @@ interface ContactList {
   memberCount: number;
 }
 
+interface CustomField {
+  id: string;
+  name: string;
+  fieldType: string;
+}
+
+const fieldInputType: Record<string, string> = { text: "text", number: "number", date: "date", url: "url" };
+
 export default function ContactsPage() {
   const [contacts, setContacts] = useState<Contact[]>([]);
   const [lists, setLists] = useState<ContactList[]>([]);
@@ -27,6 +35,12 @@ export default function ContactsPage() {
   const [open, setOpen] = useState(false);
   const [editing, setEditing] = useState<Contact | null>(null);
   const [error, setError] = useState("");
+
+  const [fields, setFields] = useState<CustomField[]>([]);
+  const [fieldValues, setFieldValues] = useState<Record<string, string>>({});
+  const [showFields, setShowFields] = useState(false);
+  const [newFieldName, setNewFieldName] = useState("");
+  const [newFieldType, setNewFieldType] = useState("text");
 
   const [showNewList, setShowNewList] = useState(false);
   const [newListName, setNewListName] = useState("");
@@ -56,13 +70,33 @@ export default function ContactsPage() {
       setListMembers(d.members ?? []);
     } catch { setListMembers([]); }
   };
+  const loadFields = async () => {
+    try {
+      const r = await fetch("/api/contact-fields", { cache: "no-store" });
+      const d = r.ok ? await r.json() : {};
+      setFields(d.fields ?? []);
+    } catch { setFields([]); }
+  };
 
-  useEffect(() => { loadContacts(); loadLists(); }, []);
+  useEffect(() => { loadContacts(); loadLists(); loadFields(); }, []);
   useEffect(() => { if (activeListId) loadListMembers(activeListId); }, [activeListId]);
 
   const activeList = lists.find(l => l.id === activeListId) ?? null;
   const source = activeListId ? listMembers : contacts;
   const filtered = source.filter(c => `${c.email} ${c.firstName ?? ""} ${c.lastName ?? ""}`.toLowerCase().includes(query.toLowerCase()));
+
+  async function openEdit(c: Contact) {
+    setEditing(c); setError(""); setFieldValues({}); setOpen(true);
+    try {
+      const r = await fetch(`/api/contacts/${c.id}/fields`, { cache: "no-store" });
+      const d = r.ok ? await r.json() : { values: [] };
+      setFieldValues(Object.fromEntries((d.values ?? []).map((v: { fieldId: string; value: string | null }) => [v.fieldId, v.value ?? ""])));
+    } catch { /* leave field inputs blank if this fails -- the contact itself still loaded fine */ }
+  }
+
+  function openNew() {
+    setEditing(null); setError(""); setFieldValues({}); setOpen(true);
+  }
 
   async function save(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
@@ -74,14 +108,32 @@ export default function ContactsPage() {
       headers: { "content-type": "application/json" },
       body: JSON.stringify(body),
     });
-    if (r.ok) { setOpen(false); setEditing(null); loadContacts(); if (activeListId) loadListMembers(activeListId); }
-    else { const d = await r.json().catch(() => ({})); setError(d.error ?? "Could not save contact."); }
+    if (!r.ok) { const d = await r.json().catch(() => ({})); setError(d.error ?? "Could not save contact."); return; }
+    const contact = await r.json();
+    if (fields.length > 0) {
+      await fetch(`/api/contacts/${contact.id}/fields`, { method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify({ values: fieldValues }) });
+    }
+    setOpen(false); setEditing(null); loadContacts(); if (activeListId) loadListMembers(activeListId);
   }
 
   async function remove(id: string) {
     if (!confirm("Delete this contact? This removes them from all lists too.")) return;
-    await fetch(`/api/contacts/${id}`, { method: "DELETE" });
+    const r = await fetch(`/api/contacts/${id}`, { method: "DELETE" });
+    if (!r.ok) { const d = await r.json().catch(() => ({})); alert(d.error ?? "Could not delete contact."); return; }
     loadContacts(); loadLists(); if (activeListId) loadListMembers(activeListId);
+  }
+
+  async function addField(e: React.FormEvent) {
+    e.preventDefault();
+    if (!newFieldName.trim()) return;
+    const r = await fetch("/api/contact-fields", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ name: newFieldName.trim(), fieldType: newFieldType }) });
+    if (r.ok) { setNewFieldName(""); setNewFieldType("text"); loadFields(); }
+  }
+
+  async function removeField(id: string) {
+    if (!confirm("Delete this field? Its values on every contact will be deleted too.")) return;
+    await fetch(`/api/contact-fields/${id}`, { method: "DELETE" });
+    loadFields();
   }
 
   async function createList(e: React.FormEvent) {
@@ -130,9 +182,12 @@ export default function ContactsPage() {
             <p className="mt-1 text-sm text-zinc-500">People you can send emails to.</p>
           </div>
           {!activeListId ? (
-            <button onClick={() => { setEditing(null); setError(""); setOpen(true); }} className="rounded-lg bg-zinc-900 px-4 py-2.5 text-sm font-semibold text-white">
-              + New Contact
-            </button>
+            <div className="flex items-center gap-2">
+              <button onClick={() => setShowFields(true)} className="flex items-center gap-2 rounded-lg border px-3 py-2.5 text-sm font-semibold hover:bg-zinc-50"><Settings2 size={15} /> Custom fields</button>
+              <button onClick={openNew} className="rounded-lg bg-zinc-900 px-4 py-2.5 text-sm font-semibold text-white">
+                + New Contact
+              </button>
+            </div>
           ) : (
             <button onClick={() => setShowAddToList(true)} className="flex items-center gap-2 rounded-lg bg-zinc-900 px-4 py-2.5 text-sm font-semibold text-white">
               <UserPlus size={15} /> Add contacts
@@ -191,7 +246,7 @@ export default function ContactsPage() {
                         <button onClick={() => removeFromList(c.id)} className="rounded-md border px-3 py-1.5 text-xs font-medium text-red-600 hover:bg-red-50">Remove from list</button>
                       ) : (
                         <>
-                          <button onClick={() => { setEditing(c); setError(""); setOpen(true); }} className="rounded-md border px-3 py-1.5 text-xs font-medium hover:bg-zinc-50">Edit</button>
+                          <button onClick={() => openEdit(c)} className="rounded-md border px-3 py-1.5 text-xs font-medium hover:bg-zinc-50">Edit</button>
                           <button onClick={() => remove(c.id)} className="ml-2 rounded-md border px-3 py-1.5 text-xs font-medium text-red-600 hover:bg-red-50">Delete</button>
                         </>
                       )}
@@ -229,6 +284,19 @@ export default function ContactsPage() {
                   <option value="unsubscribed">Unsubscribed</option>
                 </select>
               </label>
+              {fields.length > 0 && <>
+                <div className="border-t pt-4 text-[10px] font-bold uppercase tracking-widest text-zinc-400">Custom fields</div>
+                {fields.map(f => (
+                  <label key={f.id} className="block text-sm font-medium">{f.name}
+                    <input
+                      type={fieldInputType[f.fieldType] ?? "text"}
+                      value={fieldValues[f.id] ?? ""}
+                      onChange={e => setFieldValues(v => ({ ...v, [f.id]: e.target.value }))}
+                      className="mt-1 w-full rounded-lg border p-2.5"
+                    />
+                  </label>
+                ))}
+              </>}
               {error && <p className="text-sm text-red-600">{error}</p>}
             </div>
             <div className="mt-6 flex justify-end gap-2">
@@ -249,6 +317,40 @@ export default function ContactsPage() {
               <button className="rounded-lg bg-zinc-900 px-4 py-2 text-sm font-semibold text-white">Create</button>
             </div>
           </form>
+        </div>
+      )}
+
+      {showFields && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 p-6" onClick={() => setShowFields(false)}>
+          <div onClick={e => e.stopPropagation()} className="w-full max-w-md rounded-2xl bg-white p-6 shadow-xl">
+            <div className="flex items-center justify-between"><h2 className="text-lg font-semibold">Custom fields</h2><button onClick={() => setShowFields(false)}><X size={18} /></button></div>
+            <p className="mt-1 text-xs text-zinc-500">Extra properties you can set per contact, e.g. company or plan tier.</p>
+
+            <div className="mt-4 space-y-1.5">
+              {fields.length === 0 ? (
+                <div className="rounded-lg border border-dashed p-4 text-center text-xs text-zinc-400">No custom fields yet.</div>
+              ) : fields.map(f => (
+                <div key={f.id} className="flex items-center justify-between rounded-lg border p-2.5 text-sm">
+                  <span>{f.name}</span>
+                  <div className="flex items-center gap-2">
+                    <span className="rounded-full bg-zinc-100 px-2 py-0.5 text-[10px] font-semibold uppercase text-zinc-500">{f.fieldType}</span>
+                    <button onClick={() => removeField(f.id)} className="rounded p-1 text-zinc-400 hover:bg-red-50 hover:text-red-600"><Trash2 size={14} /></button>
+                  </div>
+                </div>
+              ))}
+            </div>
+
+            <form onSubmit={addField} className="mt-4 flex items-center gap-2 border-t pt-4">
+              <input value={newFieldName} onChange={e => setNewFieldName(e.target.value)} placeholder="Field name" className="min-w-0 flex-1 rounded-lg border p-2 text-sm" />
+              <select value={newFieldType} onChange={e => setNewFieldType(e.target.value)} className="rounded-lg border p-2 text-sm">
+                <option value="text">Text</option>
+                <option value="number">Number</option>
+                <option value="date">Date</option>
+                <option value="url">URL</option>
+              </select>
+              <button disabled={!newFieldName.trim()} className="flex shrink-0 items-center gap-1.5 rounded-lg bg-zinc-900 px-3 py-2 text-xs font-semibold text-white disabled:opacity-40"><Plus size={14} /> Add</button>
+            </form>
+          </div>
         </div>
       )}
 

@@ -1,7 +1,8 @@
 import "server-only";
 import { and, desc, eq } from "drizzle-orm";
 import { db } from "@/db/client";
-import { contacts } from "@/db/schema";
+import { contactListMembers, contacts } from "@/db/schema";
+import { deleteContactCustomValues } from "./contact-field-store";
 
 export const listContacts = (organizationId: string) =>
   db.select().from(contacts).where(eq(contacts.organizationId, organizationId)).orderBy(desc(contacts.createdAt));
@@ -28,9 +29,25 @@ export async function updateContact(organizationId: string, id: string, input: P
   return row ?? null;
 }
 
-export async function deleteContact(organizationId: string, id: string) {
-  const deleted = await db.delete(contacts).where(and(eq(contacts.id, id), eq(contacts.organizationId, organizationId))).returning({ id: contacts.id });
-  return deleted.length > 0;
+export type DeleteContactResult = "deleted" | "not_found" | "has_campaign_history";
+
+export async function deleteContact(organizationId: string, id: string): Promise<DeleteContactResult> {
+  const existing = await getContact(organizationId, id);
+  if (!existing) return "not_found";
+  // Pure associations -- safe to drop, nothing else references them.
+  await db.delete(contactListMembers).where(eq(contactListMembers.contactId, id));
+  await deleteContactCustomValues(id);
+  try {
+    const deleted = await db.delete(contacts).where(and(eq(contacts.id, id), eq(contacts.organizationId, organizationId))).returning({ id: contacts.id });
+    return deleted.length > 0 ? "deleted" : "not_found";
+  } catch (error) {
+    // campaignRecipients.contactId has no cascade and deliberately isn't
+    // given one here -- a contact who's actually been sent something is
+    // part of the send/unsubscribe audit trail and shouldn't silently
+    // disappear along with it.
+    if (error instanceof Error && "code" in error && (error as { code?: string }).code === "23503") return "has_campaign_history";
+    throw error;
+  }
 }
 
 // Unauthenticated-by-design lookups for the public /unsubscribe flow — the
