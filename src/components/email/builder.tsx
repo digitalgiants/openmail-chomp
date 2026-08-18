@@ -154,6 +154,8 @@ export function Builder({ initialDocument, emailId }: { initialDocument: EmailDo
   const [library, setLibrary] = useState<"blocks" | null>(null);
   const [showSend, setShowSend] = useState(false);
   const [showHistory, setShowHistory] = useState(false);
+  const [editingTitle, setEditingTitle] = useState(false);
+  const [titleDraft, setTitleDraft] = useState("");
   const [history, setHistory] = useState<EmailDocument[]>([]);
   const [future, setFuture] = useState<EmailDocument[]>([]);
   const [saveState, setSaveState] = useState<"saved" | "saving" | "unsaved">("saved");
@@ -167,6 +169,11 @@ export function Builder({ initialDocument, emailId }: { initialDocument: EmailDo
     setDocument(next);
     setSaveState("unsaved");
   }, [document]);
+
+  const setEmailName = (name: string) => {
+    if (name === document.metadata.name) return;
+    commit({ ...document, metadata: { ...document.metadata, name } });
+  };
 
   const updateNode = (key: string, value: unknown) => {
     if (!selectedId) return;
@@ -319,7 +326,24 @@ export function Builder({ initialDocument, emailId }: { initialDocument: EmailDo
 
   return <div className="flex h-screen flex-col bg-zinc-100">
     <header className="flex h-16 shrink-0 items-center justify-between border-b bg-white px-4">
-      <div className="flex items-center gap-3"><a href="/emails" className="text-sm font-bold tracking-tight">VaultFoundry</a><span className="text-zinc-300">/</span><div><div className="text-sm font-semibold">{document.metadata.name || "Untitled Email"}</div><div className="text-[11px] text-zinc-500">{saveState === "saving" ? "Saving…" : saveState === "unsaved" ? "Unsaved changes" : "Saved"}</div></div></div>
+      <div className="flex items-center gap-3"><a href="/emails" className="text-sm font-bold tracking-tight">VaultFoundry</a><span className="text-zinc-300">/</span><div>
+        {editingTitle ? (
+          <input
+            autoFocus
+            value={titleDraft}
+            onChange={e => setTitleDraft(e.target.value)}
+            onFocus={e => e.currentTarget.select()}
+            onBlur={() => { setEmailName(titleDraft.trim() || "Untitled Email"); setEditingTitle(false); }}
+            onKeyDown={e => { if (e.key === "Enter") e.currentTarget.blur(); if (e.key === "Escape") setEditingTitle(false); }}
+            className="rounded border border-zinc-300 px-1.5 py-0.5 text-sm font-semibold"
+          />
+        ) : (
+          <button onClick={() => { setTitleDraft(document.metadata.name || ""); setEditingTitle(true); }} title="Click to rename" className="-mx-1.5 rounded px-1.5 py-0.5 text-left text-sm font-semibold hover:bg-zinc-100">
+            {document.metadata.name || "Untitled Email"}
+          </button>
+        )}
+        <div className="text-[11px] text-zinc-500">{saveState === "saving" ? "Saving…" : saveState === "unsaved" ? "Unsaved changes" : "Saved"}</div>
+      </div></div>
       <div className="flex items-center gap-1">
         <button title="Undo" disabled={!history.length} onClick={undo} className="rounded-md p-2 hover:bg-zinc-100 disabled:opacity-30"><Undo2 size={17}/></button>
         <button title="Redo" disabled={!future.length} onClick={redo} className="rounded-md p-2 hover:bg-zinc-100 disabled:opacity-30"><Redo2 size={17}/></button>

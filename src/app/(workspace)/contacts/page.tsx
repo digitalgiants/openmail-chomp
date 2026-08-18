@@ -48,6 +48,8 @@ export default function ContactsPage() {
   const [renameValue, setRenameValue] = useState("");
   const [showAddToList, setShowAddToList] = useState(false);
   const [addSelection, setAddSelection] = useState<Set<string>>(new Set());
+  const [addQuery, setAddQuery] = useState("");
+  const [loadingMembers, setLoadingMembers] = useState(false);
 
   const loadContacts = async () => {
     try {
@@ -64,11 +66,13 @@ export default function ContactsPage() {
     } catch { setLists([]); }
   };
   const loadListMembers = async (listId: string) => {
+    setLoadingMembers(true);
     try {
       const r = await fetch(`/api/contact-lists/${listId}/members`, { cache: "no-store" });
       const d = r.ok ? await r.json() : {};
       setListMembers(d.members ?? []);
     } catch { setListMembers([]); }
+    finally { setLoadingMembers(false); }
   };
   const loadFields = async () => {
     try {
@@ -79,7 +83,16 @@ export default function ContactsPage() {
   };
 
   useEffect(() => { loadContacts(); loadLists(); loadFields(); }, []);
-  useEffect(() => { if (activeListId) loadListMembers(activeListId); }, [activeListId]);
+  useEffect(() => {
+    if (!activeListId) { setListMembers([]); return; }
+    // Clear immediately rather than waiting for the fetch to resolve --
+    // otherwise, for a moment, listMembers still holds whichever list was
+    // active before, so "Add contacts" on the newly active list computes
+    // against the wrong list's members and can wrongly report everyone as
+    // already added.
+    setListMembers([]);
+    loadListMembers(activeListId);
+  }, [activeListId]);
 
   const activeList = lists.find(l => l.id === activeListId) ?? null;
   const source = activeListId ? listMembers : contacts;
@@ -171,6 +184,7 @@ export default function ContactsPage() {
 
   const toggleAddSelection = (id: string) => setAddSelection(s => { const next = new Set(s); next.has(id) ? next.delete(id) : next.add(id); return next; });
   const notInActiveList = contacts.filter(c => !listMembers.some(m => m.id === c.id));
+  const addCandidates = notInActiveList.filter(c => `${c.email} ${c.firstName ?? ""} ${c.lastName ?? ""}`.toLowerCase().includes(addQuery.toLowerCase()));
 
   return (
     <div className="min-h-screen bg-zinc-50 p-8">
@@ -189,7 +203,7 @@ export default function ContactsPage() {
               </button>
             </div>
           ) : (
-            <button onClick={() => setShowAddToList(true)} className="flex items-center gap-2 rounded-lg bg-zinc-900 px-4 py-2.5 text-sm font-semibold text-white">
+            <button onClick={() => { setAddQuery(""); setAddSelection(new Set()); setShowAddToList(true); }} className="flex items-center gap-2 rounded-lg bg-zinc-900 px-4 py-2.5 text-sm font-semibold text-white">
               <UserPlus size={15} /> Add contacts
             </button>
           )}
@@ -358,10 +372,13 @@ export default function ContactsPage() {
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 p-6" onClick={() => setShowAddToList(false)}>
           <div onClick={e => e.stopPropagation()} className="w-full max-w-md rounded-2xl bg-white p-6 shadow-xl">
             <div className="flex items-center justify-between"><h2 className="text-lg font-semibold">Add contacts to {activeList?.name}</h2><button onClick={() => setShowAddToList(false)}><X size={18} /></button></div>
-            <div className="mt-4 max-h-72 space-y-1 overflow-auto rounded-lg border p-2">
-              {notInActiveList.length === 0 ? (
-                <div className="p-4 text-center text-sm text-zinc-500">All contacts are already in this list.</div>
-              ) : notInActiveList.map(c => (
+            <input autoFocus value={addQuery} onChange={e => setAddQuery(e.target.value)} placeholder="Search contacts…" className="mt-4 w-full rounded-lg border p-2.5 text-sm" />
+            <div className="mt-3 max-h-72 space-y-1 overflow-auto rounded-lg border p-2">
+              {loadingMembers ? (
+                <div className="p-4 text-center text-sm text-zinc-500">Loading…</div>
+              ) : addCandidates.length === 0 ? (
+                <div className="p-4 text-center text-sm text-zinc-500">{notInActiveList.length === 0 ? "All contacts are already in this list." : "No contacts match your search."}</div>
+              ) : addCandidates.map(c => (
                 <label key={c.id} className="flex items-center gap-2.5 rounded p-1.5 text-sm hover:bg-zinc-50">
                   <input type="checkbox" checked={addSelection.has(c.id)} onChange={() => toggleAddSelection(c.id)} />
                   <span>{[c.firstName, c.lastName].filter(Boolean).join(" ") || c.email}</span>
