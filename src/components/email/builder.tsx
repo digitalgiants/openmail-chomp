@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { Monitor, Smartphone, Tablet, Undo2, Redo2, Save, Eye, Code2, Settings2, Trash2, Copy, GripVertical, ChevronUp, ChevronDown, Plus, X, LayoutTemplate, MousePointer2, Blocks, LibraryBig, Send as SendIcon } from "lucide-react";
-import { componentRegistry, builderComponents, type EmailComponent, type EmailDocument } from "@/lib/email";
+import { componentRegistry, builderComponents, groupColumnsIntoRows, type EmailComponent, type EmailDocument } from "@/lib/email";
 import { AssetPicker } from "./asset-picker";
 import { LinkPicker } from "./link-picker";
 import type { AssetRecord } from "@/lib/assets/types";
@@ -25,6 +25,31 @@ function findNode(nodes: EmailComponent[], id: string | null): EmailComponent | 
 
 function mapNodes(nodes: EmailComponent[], id: string, fn: (node: EmailComponent) => EmailComponent): EmailComponent[] {
   return nodes.map(node => node.id === id ? fn(node) : { ...node, children: node.children ? mapNodes(node.children, id, fn) : node.children });
+}
+
+// Direct parent id of a node, wherever it lives in the tree. Root-level
+// nodes have no parent (null); undefined means the id wasn't found at all.
+function findParentId(nodes: EmailComponent[], id: string, parentId: string | null = null): string | null | undefined {
+  for (const node of nodes) {
+    if (node.id === id) return parentId;
+    if (node.children) {
+      const found = findParentId(node.children, id, node.id);
+      if (found !== undefined) return found;
+    }
+  }
+  return undefined;
+}
+
+// Nearest ancestor of the given type, walking up from id (id's own node
+// counts as its own ancestor if it already matches).
+function findAncestorOfType(nodes: EmailComponent[], id: string, type: EmailComponent["type"]): EmailComponent | null {
+  let currentId: string | null | undefined = id;
+  while (currentId) {
+    const node = findNode(nodes, currentId);
+    if (node?.type === type) return node;
+    currentId = findParentId(nodes, currentId);
+  }
+  return null;
 }
 
 function removeNode(nodes: EmailComponent[], id: string): { nodes: EmailComponent[]; removed?: EmailComponent } {
@@ -59,12 +84,18 @@ function duplicateNode(nodes: EmailComponent[], id: string): { nodes: EmailCompo
   return { nodes: next, copyId };
 }
 
-function moveRoot(nodes: EmailComponent[], id: string, delta: -1 | 1) {
+// Moves a node up/down within its own parent's children, wherever it
+// lives in the tree (root, inside a column, nested content, etc.) —
+// recurses into descendants until it finds the level the node is actually
+// at, rather than only handling root-level reordering.
+function moveNode(nodes: EmailComponent[], id: string, delta: -1 | 1): EmailComponent[] {
   const index = nodes.findIndex(n => n.id === id);
-  if (index < 0) return nodes;
-  const target = index + delta;
-  if (target < 0 || target >= nodes.length) return nodes;
-  const next = [...nodes]; [next[index], next[target]] = [next[target], next[index]]; return next;
+  if (index >= 0) {
+    const target = index + delta;
+    if (target < 0 || target >= nodes.length) return nodes;
+    const next = [...nodes]; [next[index], next[target]] = [next[target], next[index]]; return next;
+  }
+  return nodes.map(n => n.children ? { ...n, children: moveNode(n.children, id, delta) } : n);
 }
 
 function makeSection(id: string): EmailComponent {
@@ -86,8 +117,8 @@ function ComponentVisual({ node, selectedId, onSelect }: { node: EmailComponent;
     case "divider": return wrap(<hr className="my-2 border-zinc-200" />);
     case "spacer": return wrap(<div style={{ height: String(p.height ?? "24px") }} />);
     case "html": return wrap(<div className="rounded border border-dashed border-zinc-300 bg-zinc-50 p-4 text-xs text-zinc-500">Custom HTML block</div>);
-    case "section": return wrap(<div className="flex flex-wrap" style={{ backgroundColor: String(p.backgroundColor ?? "#ffffff"), paddingTop: String(p.paddingTop ?? "24px"), paddingBottom: String(p.paddingBottom ?? "24px"), paddingLeft: "24px", paddingRight: "24px" }}>{node.children?.map(child => <div key={child.id} style={{ width: child.props?.width ? String(child.props.width) : undefined, minWidth: 0, flex: child.props?.width ? "0 0 auto" : "1 1 0%" }}><ComponentVisual node={child} selectedId={selectedId} onSelect={onSelect} /></div>)}</div>);
-    case "column":
+    case "section": return wrap(<div style={{ backgroundColor: String(p.backgroundColor ?? "#ffffff"), paddingLeft: "24px", paddingRight: "24px" }}>{groupColumnsIntoRows(node.children ?? []).map((row, i, rows) => <div key={row[0]?.id ?? i} className="flex flex-wrap" style={{ paddingTop: i === 0 ? String(p.paddingTop ?? "24px") : undefined, paddingBottom: i === rows.length - 1 ? String(p.paddingBottom ?? "24px") : undefined }}>{row.map(child => <div key={child.id} style={{ width: child.props?.width ? String(child.props.width) : undefined, minWidth: 0, flex: child.props?.width ? "0 0 auto" : "1 1 0%" }}><ComponentVisual node={child} selectedId={selectedId} onSelect={onSelect} /></div>)}</div>)}</div>);
+    case "column": return wrap(node.children?.length ? <div className="space-y-4">{node.children.map(child => <ComponentVisual key={child.id} node={child} selectedId={selectedId} onSelect={onSelect} />)}</div> : <div className="flex h-16 items-center justify-center rounded border border-dashed border-zinc-200 text-xs text-zinc-400">Empty column — select it, then add a component</div>);
     case "group":
     case "hero":
     case "header":
@@ -169,16 +200,37 @@ export function Builder({ initialDocument, emailId }: { initialDocument: EmailDo
 
   const add = (type: EmailComponent["type"]) => {
     const node = type === "section" ? makeSection(uid("section")) : componentRegistry[type].create(uid(type));
+    // Sections always live at the document root. Anything else: if a
+    // column (or something inside one) is selected, add into that column
+    // instead of the root — otherwise fall back to the root, same as before.
+    if (type !== "section" && selectedId) {
+      const column = findAncestorOfType(document.children, selectedId, "column");
+      if (column) {
+        commit({ ...document, children: mapNodes(document.children, column.id, n => ({ ...n, children: [...(n.children ?? []), node] })) });
+        setSelectedId(node.id);
+        return;
+      }
+    }
     commit({ ...document, children: [...document.children, node] }); setSelectedId(node.id);
   };
 
   const addColumn = () => {
     if (!selected || selected.type !== "section") return;
-    const children = selected.children ?? [];
-    if (children.length >= 3) return;
-    const width = `${100 / (children.length + 1)}%`;
-    const cols = [...children.map(c => ({ ...c, props: { ...(c.props ?? {}), width } })), { id: uid("column"), type: "column" as const, props: { width }, children: [] }];
-    commit({ ...document, children: mapNodes(document.children, selected.id, n => ({ ...n, children: cols })) });
+    const rows = groupColumnsIntoRows(selected.children ?? []);
+    if (rows.length === 0) return;
+    const lastRow = rows[rows.length - 1];
+    if (lastRow.length >= 3) return;
+    const width = `${100 / (lastRow.length + 1)}%`;
+    const updatedLastRow = [...lastRow.map(c => ({ ...c, props: { ...(c.props ?? {}), width } })), { id: uid("column"), type: "column" as const, props: { width }, children: [] }];
+    const children = [...rows.slice(0, -1).flat(), ...updatedLastRow];
+    commit({ ...document, children: mapNodes(document.children, selected.id, n => ({ ...n, children })) });
+  };
+
+  const addRow = () => {
+    if (!selected || selected.type !== "section") return;
+    const newColumn: EmailComponent = { id: uid("column"), type: "column", props: { width: "100%" }, children: [] };
+    const children = [...(selected.children ?? []), newColumn];
+    commit({ ...document, children: mapNodes(document.children, selected.id, n => ({ ...n, children })) });
   };
 
   const deleteSelected = () => {
@@ -247,7 +299,7 @@ export function Builder({ initialDocument, emailId }: { initialDocument: EmailDo
     </header>
 
     {showPreview ? <PreviewPane document={document} device={device} setDevice={setDevice} showCode={showCode} /> : <div className="flex min-h-0 flex-1">
-      <aside className="w-60 shrink-0 overflow-auto border-r bg-white p-4"><div className="mb-3 text-[10px] font-bold uppercase tracking-widest text-zinc-500">Content</div><div className="grid grid-cols-2 gap-2">{builderComponents.map(def => <button key={def.type} onClick={() => add(def.type)} className="rounded-lg border border-zinc-200 p-3 text-left transition hover:border-zinc-400 hover:bg-zinc-50"><div className="text-lg">{def.icon}</div><div className="mt-1 text-xs font-semibold">{def.label}</div><div className="text-[10px] leading-4 text-zinc-500">{def.description}</div></button>)}</div><div className="mt-7 rounded-lg bg-zinc-50 p-3 text-xs text-zinc-500"><div className="font-semibold text-zinc-700">Tip</div> Drag components on the canvas to reorder them. Select a section to add columns.</div></aside>
+      <aside className="w-60 shrink-0 overflow-auto border-r bg-white p-4"><div className="mb-3 text-[10px] font-bold uppercase tracking-widest text-zinc-500">Content</div><div className="grid grid-cols-2 gap-2">{builderComponents.map(def => <button key={def.type} onClick={() => add(def.type)} className="rounded-lg border border-zinc-200 p-3 text-left transition hover:border-zinc-400 hover:bg-zinc-50"><div className="text-lg">{def.icon}</div><div className="mt-1 text-xs font-semibold">{def.label}</div><div className="text-[10px] leading-4 text-zinc-500">{def.description}</div></button>)}</div><div className="mt-7 rounded-lg bg-zinc-50 p-3 text-xs text-zinc-500"><div className="font-semibold text-zinc-700">Tip</div> Select a column, then click a component here to add it there. Select a section for row/column options. Use the up/down arrows in the inspector to reorder anything, anywhere.</div></aside>
       <main className="min-w-0 flex-1 overflow-auto bg-zinc-100 p-8"><div className="mx-auto max-w-[760px]">
         <div className="mb-4 flex items-center justify-between"><div className="text-xs text-zinc-500">Email canvas</div><div className="flex items-center gap-1 rounded-lg border bg-white p-1"><DeviceButton active={device === "desktop"} onClick={() => setDevice("desktop")}><Monitor size={14}/></DeviceButton><DeviceButton active={device === "tablet"} onClick={() => setDevice("tablet")}><Tablet size={14}/></DeviceButton><DeviceButton active={device === "mobile"} onClick={() => setDevice("mobile")}><Smartphone size={14}/></DeviceButton></div></div>
         <div className="mx-auto rounded-xl bg-white p-5 shadow-sm transition-all" style={{ width: deviceWidths[device] + 40 }} onClick={() => setSelectedId(null)} onDragOver={e=>e.preventDefault()} onDrop={e=>onDrop(null,e)}>
@@ -256,7 +308,7 @@ export function Builder({ initialDocument, emailId }: { initialDocument: EmailDo
           </div>}
         </div>
       </div></main>
-      {showSettings ? <SettingsPanel document={document} commit={commit} onClose={() => setShowSettings(false)} /> : <Inspector selected={selected} updateNode={updateNode} updateNodeProps={updateNodeProps} updateStyle={updateStyle} addColumn={addColumn} duplicate={duplicateSelected} remove={deleteSelected} moveUp={() => selectedId && commit({ ...document, children: moveRoot(document.children, selectedId, -1) })} moveDown={() => selectedId && commit({ ...document, children: moveRoot(document.children, selectedId, 1) })} />}
+      {showSettings ? <SettingsPanel document={document} commit={commit} onClose={() => setShowSettings(false)} /> : <Inspector selected={selected} updateNode={updateNode} updateNodeProps={updateNodeProps} updateStyle={updateStyle} addColumn={addColumn} addRow={addRow} duplicate={duplicateSelected} remove={deleteSelected} moveUp={() => selectedId && commit({ ...document, children: moveNode(document.children, selectedId, -1) })} moveDown={() => selectedId && commit({ ...document, children: moveNode(document.children, selectedId, 1) })} />}
     </div>}
     {library === "blocks" && <BlockLibrary onClose={() => setLibrary(null)} onInsert={insertBlock} />}
     {showSend && emailId && <SendModal emailId={emailId} onClose={() => setShowSend(false)} />}
@@ -342,12 +394,12 @@ function SendModal({ emailId, onClose }: { emailId: string; onClose: () => void 
 
 function DeviceButton({active,onClick,children}:{active:boolean;onClick:()=>void;children:React.ReactNode}){return <button onClick={onClick} className={`rounded-md p-2 ${active ? "bg-zinc-900 text-white" : "text-zinc-500 hover:bg-zinc-100"}`}>{children}</button>}
 
-function Inspector({ selected, updateNode, updateNodeProps, updateStyle, addColumn, duplicate, remove, moveUp, moveDown }: { selected?: EmailComponent; updateNode:(k:string,v:unknown)=>void; updateNodeProps:(props:Record<string,unknown>)=>void; updateStyle:(k:string,v:string)=>void; addColumn:()=>void; duplicate:()=>void; remove:()=>void; moveUp:()=>void; moveDown:()=>void }) {
+function Inspector({ selected, updateNode, updateNodeProps, updateStyle, addColumn, addRow, duplicate, remove, moveUp, moveDown }: { selected?: EmailComponent; updateNode:(k:string,v:unknown)=>void; updateNodeProps:(props:Record<string,unknown>)=>void; updateStyle:(k:string,v:string)=>void; addColumn:()=>void; addRow:()=>void; duplicate:()=>void; remove:()=>void; moveUp:()=>void; moveDown:()=>void }) {
   if (!selected) return <aside className="w-72 shrink-0 border-l bg-white p-5"><div className="flex h-full flex-col items-center justify-center text-center text-sm text-zinc-500"><MousePointer2 className="mb-3 text-zinc-300"/><div className="font-medium text-zinc-700">Select a component</div><div className="mt-1 text-xs">Its properties will appear here.</div></div></aside>;
   const p = selected.props ?? {};
   return <aside className="w-72 shrink-0 overflow-auto border-l bg-white p-5"><div className="mb-4 flex items-start justify-between"><div><div className="text-[10px] font-bold uppercase tracking-widest text-zinc-500">Selected</div><div className="mt-1 text-lg font-semibold">{componentRegistry[selected.type].label}</div></div><button onClick={remove} className="rounded p-1.5 text-zinc-400 hover:bg-red-50 hover:text-red-600"><Trash2 size={16}/></button></div>
     <div className="mb-5 flex gap-1 rounded-lg bg-zinc-50 p-1"><button onClick={moveUp} className="flex-1 rounded p-1.5 hover:bg-white" title="Move up"><ChevronUp size={15} className="mx-auto"/></button><button onClick={moveDown} className="flex-1 rounded p-1.5 hover:bg-white" title="Move down"><ChevronDown size={15} className="mx-auto"/></button><button onClick={duplicate} className="flex-1 rounded p-1.5 hover:bg-white" title="Duplicate"><Copy size={15} className="mx-auto"/></button></div>
-    {selected.type === "section" && <button onClick={addColumn} className="mb-5 flex w-full items-center justify-center gap-2 rounded-lg border border-dashed border-zinc-300 p-2 text-xs font-semibold hover:bg-zinc-50"><Plus size={14}/> Add column</button>}
+    {selected.type === "section" && <div className="mb-5 flex gap-2"><button onClick={addRow} className="flex flex-1 items-center justify-center gap-2 rounded-lg border border-dashed border-zinc-300 p-2 text-xs font-semibold hover:bg-zinc-50"><Plus size={14}/> Add row</button><button onClick={addColumn} className="flex flex-1 items-center justify-center gap-2 rounded-lg border border-dashed border-zinc-300 p-2 text-xs font-semibold hover:bg-zinc-50"><Plus size={14}/> Add column</button></div>}
     {selected.type === "text" || selected.type === "heading" || selected.type === "quote" ? <Field label="Content"><textarea value={String(p.content ?? "")} onChange={e => updateNode("content", e.target.value)} className="min-h-28 w-full rounded-lg border p-2 text-sm"/></Field> : null}
     {selected.type === "button" ? <><Field label="Button text"><input value={String(p.text ?? "")} onChange={e=>updateNode("text",e.target.value)} /></Field><Field label="Link"><LinkPicker value={String(p.linkId ?? "")} onChange={l=>updateNodeProps({linkId:l.id,href:l.destinationUrl})} /></Field></> : null}
     {selected.type === "image" ? <><Field label="Image"><AssetPicker value={String(p.assetId ?? "")} onChange={(asset:AssetRecord)=>updateNodeProps({assetId:asset.id,assetUrl:asset.publicUrl,alt:p.alt || asset.altText || ""})} /></Field><Field label="Alt text"><input value={String(p.alt ?? "")} onChange={e=>updateNode("alt",e.target.value)} /></Field><Field label="Link"><LinkPicker value={String(p.linkId ?? "")} onChange={l=>updateNodeProps({linkId:l.id,href:l.destinationUrl})} /></Field></> : null}
