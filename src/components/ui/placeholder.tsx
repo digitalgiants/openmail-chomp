@@ -1,0 +1,1 @@
+export function Placeholder({ title, text }: { title: string; text: string }) { return <div className="border border-dashed border-zinc-300 rounded-xl bg-white p-10 text-center"><div className="font-medium">{title}</div><div className="text-sm text-zinc-500 mt-2">{text}</div></div>; }
