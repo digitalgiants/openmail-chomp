@@ -331,13 +331,17 @@ function BlockLibrary({ onClose, onInsert }: { onClose: () => void; onInsert: (i
 }
 
 interface SendContact { id: string; email: string; firstName?: string | null; lastName?: string | null; status: string; }
+interface SendList { id: string; name: string; memberCount: number; }
 
 const resultLabel: Record<string, string> = { sent: "Sent", failed: "Failed", skipped: "Skipped (unsubscribed)" };
 const resultColor: Record<string, string> = { sent: "text-emerald-600", failed: "text-red-600", skipped: "text-zinc-400" };
 
 function SendModal({ emailId, onClose }: { emailId: string; onClose: () => void }) {
   const [contacts, setContacts] = useState<SendContact[]>([]);
+  const [lists, setLists] = useState<SendList[]>([]);
+  const [listMembers, setListMembers] = useState<Record<string, SendContact[]>>({});
   const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [selectedLists, setSelectedLists] = useState<Set<string>>(new Set());
   const [extra, setExtra] = useState("");
   const [status, setStatus] = useState<"idle" | "sending" | "done">("idle");
   const [results, setResults] = useState<{ email: string; status: "sent" | "failed" | "skipped"; error?: string }[]>([]);
@@ -345,13 +349,24 @@ function SendModal({ emailId, onClose }: { emailId: string; onClose: () => void 
 
   useEffect(() => {
     fetch("/api/contacts", { cache: "no-store" }).then(r => r.ok ? r.json() : { contacts: [] }).then(d => setContacts(d.contacts ?? [])).catch(() => setContacts([]));
+    fetch("/api/contact-lists", { cache: "no-store" }).then(r => r.ok ? r.json() : { lists: [] }).then(d => setLists(d.lists ?? [])).catch(() => setLists([]));
   }, []);
 
   const toggle = (email: string) => setSelected(s => { const next = new Set(s); next.has(email) ? next.delete(email) : next.add(email); return next; });
 
+  const toggleList = async (listId: string) => {
+    setSelectedLists(s => { const next = new Set(s); next.has(listId) ? next.delete(listId) : next.add(listId); return next; });
+    if (!listMembers[listId]) {
+      const r = await fetch(`/api/contact-lists/${listId}/members`, { cache: "no-store" });
+      const d = await r.json().catch(() => ({}));
+      setListMembers(m => ({ ...m, [listId]: d.members ?? [] }));
+    }
+  };
+
   const send = async () => {
     const extraEmails = extra.split(/[\n,]/).map(e => e.trim()).filter(Boolean);
-    const recipientEmails = [...selected, ...extraEmails];
+    const listEmails = [...selectedLists].flatMap(id => (listMembers[id] ?? []).filter(c => c.status !== "unsubscribed").map(c => c.email));
+    const recipientEmails = [...new Set([...selected, ...listEmails, ...extraEmails])];
     if (recipientEmails.length === 0) { setError("Add at least one recipient."); return; }
     setError(""); setStatus("sending");
     const r = await fetch(`/api/emails/${emailId}/send`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ recipientEmails }) });
@@ -374,6 +389,16 @@ function SendModal({ emailId, onClose }: { emailId: string; onClose: () => void 
         </div>
       ) : (
         <div className="mt-5">
+          {lists.length > 0 && <div className="mb-4">
+            <div className="mb-2 text-xs font-semibold uppercase tracking-widest text-zinc-500">Lists</div>
+            <div className="space-y-1 rounded-lg border p-2">
+              {lists.map(l => <label key={l.id} className="flex items-center gap-2.5 rounded p-1.5 text-sm hover:bg-zinc-50">
+                <input type="checkbox" checked={selectedLists.has(l.id)} onChange={() => toggleList(l.id)} />
+                <span>{l.name}</span>
+                <span className="text-zinc-400">{l.memberCount} contact{l.memberCount === 1 ? "" : "s"}</span>
+              </label>)}
+            </div>
+          </div>}
           {contacts.length > 0 && <div className="mb-4">
             <div className="mb-2 text-xs font-semibold uppercase tracking-widest text-zinc-500">Contacts</div>
             <div className="max-h-48 space-y-1 overflow-auto rounded-lg border p-2">
