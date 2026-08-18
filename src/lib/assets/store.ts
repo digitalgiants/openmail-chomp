@@ -1,16 +1,36 @@
-import { mkdir, readFile, writeFile } from "node:fs/promises";
-import path from "node:path";
-import type { AssetRecord } from "./types";
+import "server-only";
+import { and, desc, eq } from "drizzle-orm";
+import { db } from "@/db/client";
+import { assets } from "@/db/schema";
 
-const file = path.join(process.cwd(), "data", "assets.json");
-async function readAll(): Promise<AssetRecord[]> {
-  try { return JSON.parse(await readFile(file, "utf8")); } catch { return []; }
+export interface CreateAssetInput {
+  filename: string;
+  originalFilename: string;
+  mimeType: string;
+  fileSize: number;
+  width?: number;
+  height?: number;
+  storageProvider: string;
+  storageKey: string;
+  publicUrl: string;
+  altText?: string;
+  folderId?: string;
 }
-async function writeAll(items: AssetRecord[]) {
-  await mkdir(path.dirname(file), { recursive: true });
-  await writeFile(file, JSON.stringify(items, null, 2));
+
+export const listAssets = (organizationId: string) =>
+  db.select().from(assets).where(eq(assets.organizationId, organizationId)).orderBy(desc(assets.createdAt));
+
+export async function createAsset(organizationId: string, userId: string, input: CreateAssetInput) {
+  const [row] = await db.insert(assets).values({ organizationId, createdBy: userId, ...input }).returning();
+  return row;
 }
-export async function listAssets() { return readAll(); }
-export async function createAsset(asset: AssetRecord) { const items = await readAll(); items.unshift(asset); await writeAll(items); return asset; }
-export async function updateAsset(id: string, patch: Partial<AssetRecord>) { const items = await readAll(); const index = items.findIndex(a => a.id === id); if (index < 0) return null; items[index] = { ...items[index], ...patch }; await writeAll(items); return items[index]; }
-export async function deleteAsset(id: string) { const items = await readAll(); await writeAll(items.filter(a => a.id !== id)); }
+
+export async function updateAsset(organizationId: string, id: string, patch: Partial<CreateAssetInput>) {
+  const [row] = await db.update(assets).set({ ...patch, updatedAt: new Date() }).where(and(eq(assets.id, id), eq(assets.organizationId, organizationId))).returning();
+  return row ?? null;
+}
+
+export async function deleteAsset(organizationId: string, id: string) {
+  const deleted = await db.delete(assets).where(and(eq(assets.id, id), eq(assets.organizationId, organizationId))).returning({ id: assets.id });
+  return deleted.length > 0;
+}

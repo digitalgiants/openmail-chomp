@@ -15,6 +15,7 @@
     "auth:generate": "better-auth generate --config src/lib/auth/auth.ts --output src/db/auth-schema.ts -y"
   },
   "dependencies": {
+    "@aws-sdk/client-s3": "latest",
     "@hookform/resolvers": "latest",
     "@radix-ui/react-dialog": "latest",
     "@radix-ui/react-dropdown-menu": "latest",

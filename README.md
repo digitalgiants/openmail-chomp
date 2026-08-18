@@ -9,9 +9,9 @@ Be aware of this before you go looking for something that isn't there yet:
 | Area | Status |
 |---|---|
 | Email/template/block builder | Working |
-| Postgres (emails, templates, blocks, links) | Working — Drizzle, org-scoped |
+| Postgres (emails, templates, blocks, links, assets) | Working — Drizzle, org-scoped |
 | Auth (magic link + Google OAuth, orgs) | Working — Better-Auth |
-| Asset uploads | **Local disk only.** `STORAGE_PROVIDER=r2` and the `R2_*` vars are placeholders — no R2 adapter is wired up yet. See [Cloudflare R2](#cloudflare-r2-asset-storage) below for how to get credentials ready ahead of that work. |
+| Asset uploads | Working — R2 when `STORAGE_PROVIDER=r2` and the `R2_*` vars are set, local disk otherwise. See [Cloudflare R2](#cloudflare-r2-asset-storage) below. |
 | Campaign sending | **Not implemented.** `getDeliveryProvider()` throws by design. Magic-link sign-in emails already work through Resend (see below) — that's a separate, smaller code path from bulk campaign delivery. |
 | Contacts / Campaigns pages | Placeholder screens |
 
@@ -124,14 +124,13 @@ This only wires up the magic-link email (`src/lib/auth/send-magic-link.ts`). It 
 
 ### Cloudflare R2 (asset storage)
 
-**Not consumed by the app yet** — `getStorageProvider()` currently always returns the local-disk provider regardless of these variables. Documented here so credentials are ready when that adapter gets built.
-
 1. In the Cloudflare dashboard, go to **R2 → Create bucket**. Name it (e.g. `vaultfoundry-assets`) and note your **Account ID** (shown in the R2 overview / account home).
 2. **R2 → Manage API tokens → Create API token** — grant it Object Read & Write access, scoped to the bucket you just created.
 3. Copy the generated **Access Key ID** and **Secret Access Key**.
 4. For public asset URLs, either enable the bucket's public development URL or attach a custom domain under the bucket's **Settings → Public access** — use whichever you configure as `R2_PUBLIC_BASE_URL`.
 5. Fill in `.env`:
    ```
+   STORAGE_PROVIDER=r2
    R2_ACCOUNT_ID=<account id>
    R2_ACCESS_KEY_ID=<access key id>
    R2_SECRET_ACCESS_KEY=<secret access key>
@@ -139,7 +138,7 @@ This only wires up the magic-link email (`src/lib/auth/send-magic-link.ts`). It 
    R2_PUBLIC_BASE_URL=<public bucket URL or custom domain>
    ```
 
-Until the R2 `StorageProvider` implementation lands (see `src/lib/storage/types.ts` for the interface it needs to satisfy), uploads go to `data/uploads/` on disk and are served back through `/api/assets/file`.
+With `STORAGE_PROVIDER` set to anything other than `r2` (or unset), uploads fall back to local disk (`data/uploads/`, served through `/api/assets/file`) — useful for dev without touching your bucket. `src/lib/storage/r2.ts` implements the `StorageProvider` interface (`src/lib/storage/types.ts`) against R2's S3-compatible API via `@aws-sdk/client-s3`; the provider is chosen once at first use in `src/lib/storage/index.ts`, so if you flip `STORAGE_PROVIDER` you'll need to restart the dev server. Uploaded object keys are prefixed with the uploader's organization ID (`{organizationId}/{year}/{hash}-{uuid}.ext`) for per-tenant isolation within the shared bucket.
 
 ---
 

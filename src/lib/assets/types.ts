@@ -11,6 +11,5 @@ export type AssetRecord = {
   publicUrl: string;
   altText?: string;
   folderId?: string;
-  tags: string[];
   createdAt: string;
 };
