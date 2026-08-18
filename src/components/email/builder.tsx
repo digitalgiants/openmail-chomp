@@ -1,7 +1,8 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Monitor, Smartphone, Tablet, Undo2, Redo2, Save, Eye, Code2, Settings2, Trash2, Copy, GripVertical, ChevronUp, ChevronDown, Plus, X, LayoutTemplate, MousePointer2, Blocks, LibraryBig } from "lucide-react";
+import { createPortal } from "react-dom";
+import { Monitor, Smartphone, Tablet, Undo2, Redo2, Save, Eye, Code2, Settings2, Trash2, Copy, GripVertical, ChevronUp, ChevronDown, Plus, X, LayoutTemplate, MousePointer2, Blocks, LibraryBig, Send as SendIcon } from "lucide-react";
 import { componentRegistry, builderComponents, type EmailComponent, type EmailDocument } from "@/lib/email";
 import { AssetPicker } from "./asset-picker";
 import { LinkPicker } from "./link-picker";
@@ -104,6 +105,7 @@ export function Builder({ initialDocument, emailId }: { initialDocument: EmailDo
   const [showCode, setShowCode] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
   const [library, setLibrary] = useState<"blocks" | null>(null);
+  const [showSend, setShowSend] = useState(false);
   const [history, setHistory] = useState<EmailDocument[]>([]);
   const [future, setFuture] = useState<EmailDocument[]>([]);
   const [saveState, setSaveState] = useState<"saved" | "saving" | "unsaved">("saved");
@@ -240,6 +242,7 @@ export function Builder({ initialDocument, emailId }: { initialDocument: EmailDo
         <button onClick={saveAsBlock} className="flex items-center gap-2 rounded-md border px-3 py-2 text-sm font-semibold hover:bg-zinc-50"><Blocks size={15}/> Save block</button>
         <button onClick={() => setLibrary("blocks")} className="flex items-center gap-2 rounded-md border px-3 py-2 text-sm font-semibold hover:bg-zinc-50"><LibraryBig size={15}/> Library</button>
         <button onClick={() => setSaveState("unsaved")} className="ml-1 flex items-center gap-2 rounded-md bg-zinc-900 px-4 py-2 text-sm font-semibold text-white"><Save size={15}/> Save</button>
+        {emailId && <button onClick={() => setShowSend(true)} className="ml-1 flex items-center gap-2 rounded-md border border-zinc-900 px-4 py-2 text-sm font-semibold hover:bg-zinc-50"><SendIcon size={15}/> Send</button>}
       </div>
     </header>
 
@@ -256,6 +259,7 @@ export function Builder({ initialDocument, emailId }: { initialDocument: EmailDo
       {showSettings ? <SettingsPanel document={document} commit={commit} onClose={() => setShowSettings(false)} /> : <Inspector selected={selected} updateNode={updateNode} updateNodeProps={updateNodeProps} updateStyle={updateStyle} addColumn={addColumn} duplicate={duplicateSelected} remove={deleteSelected} moveUp={() => selectedId && commit({ ...document, children: moveRoot(document.children, selectedId, -1) })} moveDown={() => selectedId && commit({ ...document, children: moveRoot(document.children, selectedId, 1) })} />}
     </div>}
     {library === "blocks" && <BlockLibrary onClose={() => setLibrary(null)} onInsert={insertBlock} />}
+    {showSend && emailId && <SendModal emailId={emailId} onClose={() => setShowSend(false)} />}
   </div>;
 }
 
@@ -272,6 +276,68 @@ function BlockLibrary({ onClose, onInsert }: { onClose: () => void; onInsert: (i
       <div className="max-h-[60vh] overflow-auto p-5">{filtered.length === 0 ? <div className="py-12 text-center text-sm text-zinc-500">No reusable blocks match your search.</div> : <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">{filtered.map(b => <div key={b.id} draggable onDragStart={e=>{e.dataTransfer.setData("application/x-vaultfoundry-block", b.id);e.dataTransfer.effectAllowed="copy"}} className="cursor-grab rounded-xl border p-4 text-left transition hover:border-zinc-400 hover:bg-zinc-50 active:cursor-grabbing"><button onClick={()=>onInsert(b.id)} className="w-full text-left"><div className="mb-3 flex h-20 items-center justify-center rounded-lg bg-zinc-100">{b.component.type === "heading" ? <span className="font-bold">{String(b.component.props?.content ?? "Heading")}</span> : b.component.type === "text" ? <span className="text-xs text-zinc-500">{String(b.component.props?.content ?? "Text").slice(0,80)}</span> : b.component.type === "button" ? <span className="rounded bg-zinc-900 px-3 py-1 text-xs text-white">{String(b.component.props?.text ?? "Button")}</span> : <span className="text-xs text-zinc-400">{componentRegistry[b.component.type].label}</span>}</div><div className="font-semibold">{b.name}</div><div className="mt-1 text-xs text-zinc-500">{b.description || componentRegistry[b.component.type].description}</div><div className="mt-2 text-[10px] uppercase tracking-widest text-zinc-400">{b.category || "General"} · v{b.version}</div></button></div>)}</div>}</div>
     </div>
   </div>;
+}
+
+interface SendContact { id: string; email: string; firstName?: string | null; lastName?: string | null; }
+
+function SendModal({ emailId, onClose }: { emailId: string; onClose: () => void }) {
+  const [contacts, setContacts] = useState<SendContact[]>([]);
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [extra, setExtra] = useState("");
+  const [status, setStatus] = useState<"idle" | "sending" | "done">("idle");
+  const [results, setResults] = useState<{ email: string; status: "sent" | "failed"; error?: string }[]>([]);
+  const [error, setError] = useState("");
+
+  useEffect(() => {
+    fetch("/api/contacts", { cache: "no-store" }).then(r => r.ok ? r.json() : { contacts: [] }).then(d => setContacts(d.contacts ?? [])).catch(() => setContacts([]));
+  }, []);
+
+  const toggle = (email: string) => setSelected(s => { const next = new Set(s); next.has(email) ? next.delete(email) : next.add(email); return next; });
+
+  const send = async () => {
+    const extraEmails = extra.split(/[\n,]/).map(e => e.trim()).filter(Boolean);
+    const recipientEmails = [...selected, ...extraEmails];
+    if (recipientEmails.length === 0) { setError("Add at least one recipient."); return; }
+    setError(""); setStatus("sending");
+    const r = await fetch(`/api/emails/${emailId}/send`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ recipientEmails }) });
+    const d = await r.json().catch(() => ({}));
+    if (!r.ok) { setError(d.error ?? "Could not send."); setStatus("idle"); return; }
+    setResults(d.results ?? []);
+    setStatus("done");
+  };
+
+  return createPortal(<div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 p-6" onClick={onClose}>
+    <div onClick={e => e.stopPropagation()} className="w-full max-w-lg rounded-2xl bg-white p-5 shadow-xl">
+      <div className="flex items-center justify-between"><h2 className="text-lg font-semibold">Send this email</h2><button onClick={onClose}><X size={18}/></button></div>
+
+      {status === "done" ? (
+        <div className="mt-5">
+          <div className="space-y-1.5 max-h-64 overflow-auto">
+            {results.map(r => <div key={r.email} className="flex items-center justify-between rounded-lg border p-2.5 text-sm"><span>{r.email}</span><span className={r.status === "sent" ? "text-emerald-600" : "text-red-600"}>{r.status === "sent" ? "Sent" : `Failed${r.error ? `: ${r.error}` : ""}`}</span></div>)}
+          </div>
+          <button onClick={onClose} className="mt-5 w-full rounded-lg bg-zinc-900 px-4 py-2.5 text-sm font-semibold text-white">Done</button>
+        </div>
+      ) : (
+        <div className="mt-5">
+          {contacts.length > 0 && <div className="mb-4">
+            <div className="mb-2 text-xs font-semibold uppercase tracking-widest text-zinc-500">Contacts</div>
+            <div className="max-h-48 space-y-1 overflow-auto rounded-lg border p-2">
+              {contacts.map(c => <label key={c.id} className="flex items-center gap-2.5 rounded p-1.5 text-sm hover:bg-zinc-50">
+                <input type="checkbox" checked={selected.has(c.email)} onChange={() => toggle(c.email)} />
+                <span>{[c.firstName, c.lastName].filter(Boolean).join(" ") || c.email}</span>
+                {(c.firstName || c.lastName) && <span className="text-zinc-400">{c.email}</span>}
+              </label>)}
+            </div>
+          </div>}
+          <label className="block text-sm font-medium">Other recipients<span className="ml-1 font-normal text-zinc-400">(comma or newline separated)</span>
+            <textarea value={extra} onChange={e => setExtra(e.target.value)} placeholder="someone@example.com" className="mt-1.5 min-h-20 w-full rounded-lg border p-2.5 text-sm" />
+          </label>
+          {error && <p className="mt-3 text-sm text-red-600">{error}</p>}
+          <button onClick={send} disabled={status === "sending"} className="mt-5 w-full rounded-lg bg-zinc-900 px-4 py-2.5 text-sm font-semibold text-white disabled:opacity-50">{status === "sending" ? "Sending…" : "Send"}</button>
+        </div>
+      )}
+    </div>
+  </div>, document.body);
 }
 
 function DeviceButton({active,onClick,children}:{active:boolean;onClick:()=>void;children:React.ReactNode}){return <button onClick={onClick} className={`rounded-md p-2 ${active ? "bg-zinc-900 text-white" : "text-zinc-500 hover:bg-zinc-100"}`}>{children}</button>}

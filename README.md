@@ -12,8 +12,9 @@ Be aware of this before you go looking for something that isn't there yet:
 | Postgres (emails, templates, blocks, links, assets) | Working — Drizzle, org-scoped |
 | Auth (magic link + Google OAuth, orgs) | Working — Better-Auth |
 | Asset uploads | Working — R2 when `STORAGE_PROVIDER=r2` and the `R2_*` vars are set, local disk otherwise. See [Cloudflare R2](#cloudflare-r2-asset-storage) below. |
-| Campaign sending | **Not implemented.** `getDeliveryProvider()` throws by design. Magic-link sign-in emails already work through Resend (see below) — that's a separate, smaller code path from bulk campaign delivery. |
-| Contacts / Campaigns pages | Placeholder screens |
+| Contacts | Working — CRUD, org-scoped |
+| Sending | Working for one-off/small-group sends via the builder's "Send" button (`getDeliveryProvider()` now backed by Resend). Recipients not already a contact get auto-created as one. No scheduling, no bulk campaign list/management UI yet — that's still the `/campaigns` placeholder. |
+| Campaigns page | Placeholder screen — quick-sends already write into the `campaigns`/`campaignRecipients` tables underneath, so a future campaigns list can surface this history, it just isn't built yet. |
 
 ## Prerequisites
 
@@ -124,7 +125,7 @@ Used to actually deliver the sign-in email instead of just logging the link to y
 3. Set `RESEND_API_KEY` in `.env`.
 4. Set `EMAIL_FROM` to an address on your verified domain, e.g. `VaultFoundry <noreply@yourdomain.com>`.
 
-This only wires up the magic-link email (`src/lib/auth/send-magic-link.ts`). It is **not** yet connected to campaign sending — that's a separate delivery provider (`src/lib/delivery/`) that still needs to be built.
+This same `RESEND_API_KEY` also powers actual email sending: magic-link/invitation emails (`src/lib/auth/email.ts`) and the builder's "Send" button (`src/lib/delivery/resend.ts`, selected via `DELIVERY_PROVIDER=resend`) are separate code paths that both read this one key.
 
 ### Cloudflare R2 (asset storage)
 
