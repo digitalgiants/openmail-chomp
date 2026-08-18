@@ -8,7 +8,7 @@ export async function sendMagicLinkEmail({ email, url }: { email: string; url: s
     method: "POST",
     headers: { authorization: `Bearer ${apiKey}`, "content-type": "application/json" },
     body: JSON.stringify({
-      from: process.env.EMAIL_FROM ?? "VaultFoundry <onboarding@resend.dev>",
+      from: process.env.EMAIL_FROM || "VaultFoundry <onboarding@resend.dev>",
       to: email,
       subject: "Sign in to VaultFoundry",
       html: `<p>Click below to sign in:</p><p><a href="${url}">${url}</a></p><p>This link expires in 5 minutes.</p>`,
