@@ -1,5 +1,5 @@
 import "server-only";
-import { and, eq } from "drizzle-orm";
+import { and, count, desc, eq, inArray } from "drizzle-orm";
 import { db } from "@/db/client";
 import { campaignEvents, campaignRecipients, campaignRenderings, campaigns, contacts } from "@/db/schema";
 import { getEmail } from "./email-store";
@@ -84,4 +84,27 @@ export async function sendQuickEmail(organizationId: string, emailId: string, re
   await db.update(campaigns).set({ status: campaignStatus, updatedAt: new Date() }).where(eq(campaigns.id, campaign.id));
 
   return { campaignId: campaign.id, results };
+}
+
+export async function listCampaigns(organizationId: string) {
+  const rows = await db.select().from(campaigns).where(eq(campaigns.organizationId, organizationId)).orderBy(desc(campaigns.createdAt));
+  if (rows.length === 0) return [];
+  const counts = await db.select({ campaignId: campaignRecipients.campaignId, status: campaignRecipients.status, value: count() })
+    .from(campaignRecipients)
+    .where(inArray(campaignRecipients.campaignId, rows.map(r => r.id)))
+    .groupBy(campaignRecipients.campaignId, campaignRecipients.status);
+  const countMap = new Map<string, Record<string, number>>();
+  for (const c of counts) {
+    const existing = countMap.get(c.campaignId) ?? {};
+    existing[c.status] = c.value;
+    countMap.set(c.campaignId, existing);
+  }
+  return rows.map(r => ({ ...r, recipientCounts: countMap.get(r.id) ?? {} }));
+}
+
+export async function getCampaignWithRecipients(organizationId: string, id: string) {
+  const [campaign] = await db.select().from(campaigns).where(and(eq(campaigns.id, id), eq(campaigns.organizationId, organizationId)));
+  if (!campaign) return null;
+  const recipients = await db.select().from(campaignRecipients).where(eq(campaignRecipients.campaignId, id)).orderBy(campaignRecipients.email);
+  return { ...campaign, recipients };
 }

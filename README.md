@@ -15,7 +15,7 @@ Be aware of this before you go looking for something that isn't there yet:
 | Contacts | Working — CRUD, org-scoped. Contact Lists too: create/rename/delete a list, add/remove members, and select a whole list as recipients from the builder's Send modal. |
 | Sending | Working for one-off/small-group sends via the builder's "Send" button (`getDeliveryProvider()` now backed by Resend). Recipients not already a contact get auto-created as one. Every send appends a per-recipient unsubscribe link and skips contacts already marked unsubscribed. No scheduling, no bulk campaign list/management UI yet — that's still the `/campaigns` placeholder. |
 | Unsubscribe | Working — public `/unsubscribe?contact={id}` page (no auth, since the recipient clicking it isn't signed in), requires an explicit confirm click rather than unsubscribing on GET (email security scanners prefetch links). |
-| Campaigns page | Placeholder screen — quick-sends already write into the `campaigns`/`campaignRecipients` tables underneath, so a future campaigns list can surface this history, it just isn't built yet. |
+| Campaigns page | Working — lists every send (from the builder's Send button or composed here directly) with per-recipient status, plus a "New Campaign" flow to pick an email + contacts/lists without opening the builder. No scheduling or bulk batching yet. |
 
 ## Prerequisites
 
