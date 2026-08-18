@@ -16,7 +16,12 @@ services:
     volumes:
       - ./data/uploads:/app/data/uploads:Z
     healthcheck:
-      test: ["CMD-SHELL", "wget -qO- http://localhost:3000/api/health || exit 1"]
+      # 127.0.0.1, not localhost — Next's standalone server (HOSTNAME=0.0.0.0)
+      # binds IPv4 only, but "localhost" can resolve to ::1 first inside an
+      # Alpine/musl container, which nothing is listening on. That gave a
+      # false "connection refused" here even though the app was up and
+      # reachable fine from the host via the published port.
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:3000/api/health || exit 1"]
       interval: 30s
       timeout: 5s
       retries: 3
