@@ -10,14 +10,15 @@
     "db:generate": "drizzle-kit generate",
     "db:migrate": "drizzle-kit migrate",
     "db:push": "drizzle-kit push",
-    "db:up": "docker compose up -d",
-    "db:down": "docker compose down",
+    "db:up": "docker compose up -d postgres",
+    "db:down": "docker compose stop postgres",
     "auth:generate": "better-auth generate --config src/lib/auth/auth.ts --output src/db/auth-schema.ts -y",
-    "docker:build": "docker compose build",
-    "docker:up": "docker compose up -d",
-    "docker:down": "docker compose down",
-    "docker:logs": "docker compose logs -f app",
-    "docker:db:push": "docker compose exec app npm run db:push"
+    "docker:build": "podman-compose build",
+    "docker:up": "podman-compose up -d",
+    "docker:down": "podman-compose down",
+    "docker:logs": "podman-compose logs -f app",
+    "docker:db:push": "podman-compose run --rm migrate",
+    "docker:db:migrate": "podman-compose run --rm migrate npm run db:migrate"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "latest",

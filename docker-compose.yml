@@ -22,6 +22,28 @@ services:
       retries: 3
       start_period: 10s
 
+  # One-off schema/migration runner. The `app` image is Next's pruned
+  # `output: standalone` build and never has drizzle-kit or devDependencies
+  # in it — this builds from the earlier `builder` stage instead, which has
+  # the full toolchain. Not started by `up`; invoke explicitly, e.g.:
+  #   podman-compose run --rm migrate npm run db:push
+  #   podman-compose run --rm migrate npm run db:migrate
+  migrate:
+    build:
+      context: .
+      target: builder
+    profiles: ["tools"]
+    restart: "no"
+    env_file:
+      - .env
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@postgres:5432/${POSTGRES_DB:-vaultfoundry}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    entrypoint: ["npm", "run"]
+    command: ["db:push"]
+
   postgres:
     image: postgres:16-alpine
     restart: unless-stopped

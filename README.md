@@ -148,14 +148,14 @@ With `STORAGE_PROVIDER` set to anything other than `r2` (or unset), uploads fall
 
 ## Running the whole stack in containers
 
-`docker-compose.yml` at the repo root runs both the app (built from the included `Dockerfile`, multi-stage, Next's `output: "standalone"`) and Postgres. This is the deployment-shaped setup — use it on a real host (e.g. an RHEL box behind Caddy), not just local dev.
+`docker-compose.yml` at the repo root runs the app (built from the included `Dockerfile`, multi-stage, Next's `output: "standalone"`) and Postgres. This is the deployment-shaped setup — use it on a real host (e.g. an RHEL box behind Caddy), not just local dev. The `npm run docker:*` scripts shell out to **`podman-compose`** (not `docker compose`) — adjust them if you're actually on Docker.
 
 ```bash
 cp .env.example .env        # fill in real values — this is what the app container reads
-npm run docker:build         # docker compose build
-npm run docker:up            # docker compose up -d
-npm run docker:db:push       # docker compose exec app npm run db:push — applies the schema
-npm run docker:logs          # docker compose logs -f app
+npm run docker:build         # podman-compose build
+npm run docker:up            # podman-compose up -d
+npm run docker:db:push       # podman-compose run --rm migrate — applies the schema (first run and after any schema change)
+npm run docker:logs          # podman-compose logs -f app
 ```
 
 The app listens on **`127.0.0.1:6567`** on the host — loopback only, not exposed to the network directly. Point your reverse proxy at it. A minimal Caddyfile entry:
@@ -166,9 +166,18 @@ mail.yourdomain.com {
 }
 ```
 
-Set `BETTER_AUTH_URL` in `.env` to that public URL (`https://mail.yourdomain.com`) before starting the stack — it's what both the Google OAuth redirect and magic-link URLs are built from. If Caddy runs on a different host or its own container/network and can't reach `127.0.0.1` on this machine, change the `app.ports` binding in `docker-compose.yml` accordingly (e.g. drop the `127.0.0.1:` prefix, or attach both to a shared Docker network and skip publishing a host port entirely).
+Set `BETTER_AUTH_URL` in `.env` to that public URL (`https://mail.yourdomain.com`) before starting the stack — it's what both the Google OAuth redirect and magic-link URLs are built from, and better-auth will reject requests whose `Origin` doesn't match it. Env vars are read at container start, not baked into the image, so changing `.env` only needs a restart (`podman-compose down && podman-compose up -d`), not a rebuild. If Caddy runs on a different host or its own container/network and can't reach `127.0.0.1` on this machine, change the `app.ports` binding in `docker-compose.yml` accordingly (e.g. drop the `127.0.0.1:` prefix, or attach both to a shared network and skip publishing a host port entirely).
 
-**Postgres is not exposed to the host at all** — no `ports:` entry on that service. Only the `app` container can reach it, over the internal compose network at `postgres:5432`. This also means `npm run db:push`/`db:migrate` from your host won't work against the containerized database anymore — run them inside the container instead (`npm run docker:db:push`, or `docker compose exec app npm run db:migrate`).
+**Postgres is not exposed to the host at all** — no `ports:` entry on that service. Only the `app` container can reach it, over the internal compose network at `postgres:5432`.
+
+**Schema pushes/migrations run via a separate `migrate` service**, not inside `app` — the `app` image is Next's pruned standalone build and deliberately never has `drizzle-kit` or any devDependencies in it. `migrate` instead builds from the Dockerfile's intermediate `builder` stage (full toolchain) and only runs when invoked explicitly:
+
+```bash
+npm run docker:db:push       # podman-compose run --rm migrate
+npm run docker:db:migrate    # podman-compose run --rm migrate npm run db:migrate
+```
+
+Run `docker:db:push` once after the first `docker:up` (a fresh Postgres has no tables at all — every write, including a magic-link sign-in, will 500 until this has run) and again after any schema change.
 
 ### SELinux (RHEL 10.1 and similar)
 
@@ -223,7 +232,7 @@ Compose merges override files automatically, so this never touches the committed
 | `npm run db:push` | Push schema to the database directly (dev) |
 | `npm run db:generate` / `db:migrate` | Generate and apply versioned SQL migrations |
 | `npm run auth:generate` | Regenerate Better-Auth's Drizzle schema from `src/lib/auth/auth.ts` |
-| `npm run docker:build` | Build the app image (`docker compose build`) |
+| `npm run docker:build` | Build the app image (`podman-compose build`) |
 | `npm run docker:up` / `docker:down` | Start/stop the full app + Postgres stack |
 | `npm run docker:logs` | Tail the app container's logs |
-| `npm run docker:db:push` | Push the schema from inside the running app container |
+| `npm run docker:db:push` / `docker:db:migrate` | Push/migrate the schema via the one-off `migrate` service |
