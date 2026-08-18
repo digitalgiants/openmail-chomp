@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { Monitor, Smartphone, Tablet, Undo2, Redo2, Save, Eye, Code2, Settings2, Trash2, Copy, GripVertical, ChevronUp, ChevronDown, Plus, X, LayoutTemplate, MousePointer2, Blocks, LibraryBig, Send as SendIcon } from "lucide-react";
+import { Monitor, Smartphone, Tablet, Undo2, Redo2, Save, Eye, Code2, Settings2, Trash2, Copy, GripVertical, ChevronUp, ChevronDown, Plus, X, LayoutTemplate, MousePointer2, Blocks, LibraryBig, Send as SendIcon, History as HistoryIcon } from "lucide-react";
 import { componentRegistry, builderComponents, groupColumnsIntoRows, type EmailComponent, type EmailDocument } from "@/lib/email";
 import { AssetPicker } from "./asset-picker";
 import { LinkPicker } from "./link-picker";
@@ -137,6 +137,7 @@ export function Builder({ initialDocument, emailId }: { initialDocument: EmailDo
   const [showSettings, setShowSettings] = useState(false);
   const [library, setLibrary] = useState<"blocks" | null>(null);
   const [showSend, setShowSend] = useState(false);
+  const [showHistory, setShowHistory] = useState(false);
   const [history, setHistory] = useState<EmailDocument[]>([]);
   const [future, setFuture] = useState<EmailDocument[]>([]);
   const [saveState, setSaveState] = useState<"saved" | "saving" | "unsaved">("saved");
@@ -249,6 +250,18 @@ export function Builder({ initialDocument, emailId }: { initialDocument: EmailDo
   const undo = () => { const previous = history.at(-1); if (!previous) return; setHistory(h => h.slice(0, -1)); setFuture(f => [document, ...f]); setDocument(previous); setSaveState("unsaved"); };
   const redo = () => { const next = future[0]; if (!next) return; setFuture(f => f.slice(1)); setHistory(h => [...h, document]); setDocument(next); setSaveState("unsaved"); };
 
+  // Restoring a version already persisted the change server-side (see
+  // restoreEmailVersion), so this bypasses commit()'s autosave trigger --
+  // otherwise the very next debounced PATCH would just write back the
+  // same document that was already saved.
+  const restoreVersion = (restoredDocument: EmailDocument) => {
+    setHistory(h => [...h.slice(-39), document]);
+    setFuture([]);
+    setDocument(restoredDocument);
+    setSaveState("saved");
+    setShowHistory(false);
+  };
+
   useEffect(() => {
     if (!emailId || saveState === "saved") return;
     const timer = setTimeout(async () => {
@@ -290,6 +303,7 @@ export function Builder({ initialDocument, emailId }: { initialDocument: EmailDo
         <button onClick={() => setShowPreview(v => !v)} className={`flex items-center gap-2 rounded-md px-3 py-2 text-sm ${showPreview ? "bg-zinc-900 text-white" : "hover:bg-zinc-100"}`}><Eye size={16}/> Preview</button>
         <button onClick={() => setShowCode(v => !v)} className={`rounded-md p-2 ${showCode ? "bg-zinc-900 text-white" : "hover:bg-zinc-100"}`} title="HTML"><Code2 size={17}/></button>
         <button onClick={() => setShowSettings(v => !v)} className="rounded-md p-2 hover:bg-zinc-100" title="Email settings"><Settings2 size={17}/></button>
+        {emailId && <button onClick={() => setShowHistory(true)} className="rounded-md p-2 hover:bg-zinc-100" title="Version history"><HistoryIcon size={17}/></button>}
         <button onClick={saveAsTemplate} className="ml-2 flex items-center gap-2 rounded-md border px-3 py-2 text-sm font-semibold hover:bg-zinc-50"><LayoutTemplate size={15}/> Save template</button>
         <button onClick={saveAsBlock} className="flex items-center gap-2 rounded-md border px-3 py-2 text-sm font-semibold hover:bg-zinc-50"><Blocks size={15}/> Save block</button>
         <button onClick={() => setLibrary("blocks")} className="flex items-center gap-2 rounded-md border px-3 py-2 text-sm font-semibold hover:bg-zinc-50"><LibraryBig size={15}/> Library</button>
@@ -312,6 +326,7 @@ export function Builder({ initialDocument, emailId }: { initialDocument: EmailDo
     </div>}
     {library === "blocks" && <BlockLibrary onClose={() => setLibrary(null)} onInsert={insertBlock} />}
     {showSend && emailId && <SendModal emailId={emailId} onClose={() => setShowSend(false)} />}
+    {showHistory && emailId && <HistoryPanel emailId={emailId} onClose={() => setShowHistory(false)} onRestore={restoreVersion} />}
   </div>;
 }
 
@@ -420,6 +435,73 @@ function SendModal({ emailId, onClose }: { emailId: string; onClose: () => void 
           <button onClick={send} disabled={status === "sending"} className="mt-5 w-full rounded-lg bg-zinc-900 px-4 py-2.5 text-sm font-semibold text-white disabled:opacity-50">{status === "sending" ? "Sending…" : "Send"}</button>
         </div>
       )}
+    </div>
+  </div>, document.body);
+}
+
+interface EmailVersionSummary { id: string; versionNumber: number; createdAt: string; createdByName?: string | null; createdByEmail?: string | null; }
+
+function HistoryPanel({ emailId, onClose, onRestore }: { emailId: string; onClose: () => void; onRestore: (document: EmailDocument) => void }) {
+  const [versions, setVersions] = useState<EmailVersionSummary[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [previewId, setPreviewId] = useState<string | null>(null);
+  const [previewHtml, setPreviewHtml] = useState("");
+  const [restoringId, setRestoringId] = useState<string | null>(null);
+
+  useEffect(() => {
+    fetch(`/api/emails/${emailId}/versions`).then(r => r.ok ? r.json() : { versions: [] }).then(d => setVersions(d.versions ?? [])).catch(() => setVersions([])).finally(() => setLoading(false));
+  }, [emailId]);
+
+  const preview = async (versionId: string) => {
+    setPreviewId(versionId);
+    setPreviewHtml("");
+    const r = await fetch(`/api/emails/${emailId}/versions/${versionId}`);
+    if (!r.ok) return;
+    const v = await r.json();
+    const renderRes = await fetch("/api/render", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ document: v.document }) });
+    const j = await renderRes.json().catch(() => ({}));
+    setPreviewHtml(j.html ?? "");
+  };
+
+  const restore = async (versionId: string) => {
+    if (!window.confirm("Restore this version? Your current canvas will be kept as its own version, so nothing is lost.")) return;
+    setRestoringId(versionId);
+    const r = await fetch(`/api/emails/${emailId}/versions/${versionId}/restore`, { method: "POST" });
+    setRestoringId(null);
+    if (!r.ok) return;
+    const email = await r.json();
+    onRestore(email.document);
+  };
+
+  return createPortal(<div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 p-6" onClick={onClose}>
+    <div onClick={e => e.stopPropagation()} className="flex h-[80vh] w-full max-w-4xl overflow-hidden rounded-2xl border bg-white shadow-2xl">
+      <div className="w-72 shrink-0 overflow-auto border-r p-4">
+        <div className="mb-3 flex items-center justify-between"><h2 className="text-sm font-semibold">Version history</h2><button onClick={onClose}><X size={16}/></button></div>
+        {loading ? <div className="p-4 text-center text-xs text-zinc-400">Loading…</div> : versions.length === 0 ? <div className="p-4 text-center text-xs text-zinc-400">No saved versions yet. Checkpoints are created automatically as you edit.</div> : (
+          <div className="space-y-1">
+            {versions.map(v => (
+              <button key={v.id} onClick={() => preview(v.id)} className={`block w-full rounded-lg border p-2.5 text-left text-xs ${previewId === v.id ? "border-zinc-900 bg-zinc-50" : "border-transparent hover:bg-zinc-50"}`}>
+                <div className="font-semibold">Version {v.versionNumber}</div>
+                <div className="mt-0.5 text-zinc-500">{new Date(v.createdAt).toLocaleString()}</div>
+                {(v.createdByName || v.createdByEmail) && <div className="mt-0.5 text-zinc-400">by {v.createdByName || v.createdByEmail}</div>}
+              </button>
+            ))}
+          </div>
+        )}
+      </div>
+      <div className="flex flex-1 flex-col overflow-hidden">
+        {!previewId ? <div className="flex flex-1 items-center justify-center text-sm text-zinc-400">Select a version to preview</div> : (
+          <>
+            <div className="flex items-center justify-between border-b p-4">
+              <div className="text-sm font-medium">Preview</div>
+              <button onClick={() => restore(previewId)} disabled={restoringId !== null} className="rounded-lg bg-zinc-900 px-3 py-1.5 text-xs font-semibold text-white disabled:opacity-50">{restoringId === previewId ? "Restoring…" : "Restore this version"}</button>
+            </div>
+            <div className="flex-1 overflow-auto bg-zinc-100 p-6">
+              {previewHtml ? <iframe title="Version preview" srcDoc={previewHtml} className="mx-auto block min-h-[600px] w-full max-w-[640px] rounded-xl border-0 bg-white shadow-sm" /> : <div className="p-8 text-center text-xs text-zinc-400">Rendering…</div>}
+            </div>
+          </>
+        )}
+      </div>
     </div>
   </div>, document.body);
 }

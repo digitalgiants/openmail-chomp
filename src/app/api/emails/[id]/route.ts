@@ -14,6 +14,6 @@ export async function PATCH(r: Request, { params }: { params: Promise<{ id: stri
   const session = await requireSession();
   if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   const { id } = await params;
-  const e = await updateEmail(session.organizationId, id, await r.json());
+  const e = await updateEmail(session.organizationId, id, session.user.id, await r.json());
   return e ? NextResponse.json(e) : NextResponse.json({ error: "Not found" }, { status: 404 });
 }

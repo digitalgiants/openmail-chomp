@@ -9,6 +9,7 @@ Be aware of this before you go looking for something that isn't there yet:
 | Area | Status |
 |---|---|
 | Email/template/block builder | Working |
+| Email version history | Working — a checkpoint is snapshotted automatically at most once every 3 minutes of active editing (autosave itself fires far more often, so this keeps the list from being flooded with one row per keystroke pause). Open it from the clock icon in the builder toolbar to preview and restore any past checkpoint; restoring keeps the version you restore *from* too, so nothing is ever lost. Templates and blocks have the same `*_versions` tables in the schema but aren't wired up to a UI yet. |
 | Postgres (emails, templates, blocks, links, assets) | Working — Drizzle, org-scoped |
 | Auth (magic link + Google OAuth, orgs) | Working — Better-Auth. Users can belong to multiple orgs (via invitation or creating a new workspace) and switch between them from the sidebar; every page/API route scopes to whichever org is currently active in the session. |
 | Asset uploads | Working — R2 when `STORAGE_PROVIDER=r2` and the `R2_*` vars are set, local disk otherwise. See [Cloudflare R2](#cloudflare-r2-asset-storage) below. Delete also removes the underlying storage object, not just the database row. |
