@@ -9,7 +9,11 @@ export function proxy(request: NextRequest) {
   if (publicRoutes.includes(pathname)) return NextResponse.next();
 
   const sessionCookie = getSessionCookie(request);
-  if (!sessionCookie) return NextResponse.redirect(new URL("/sign-in", request.url));
+  if (!sessionCookie) {
+    const signInUrl = new URL("/sign-in", request.url);
+    signInUrl.searchParams.set("next", `${pathname}${request.nextUrl.search}`);
+    return NextResponse.redirect(signInUrl);
+  }
 
   return NextResponse.next();
 }

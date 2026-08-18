@@ -6,7 +6,7 @@ import { nextCookies } from "better-auth/next-js";
 import { eq } from "drizzle-orm";
 import { db } from "@/db/client";
 import * as authSchema from "@/db/auth-schema";
-import { sendMagicLinkEmail } from "./send-magic-link";
+import { sendInvitationEmail, sendMagicLinkEmail } from "./email";
 
 function slugify(email: string) {
   const base = email.split("@")[0].toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "") || "workspace";
@@ -60,7 +60,7 @@ export const auth = betterAuth({
     },
   },
   plugins: [
-    organization({ creatorRole: "owner" }),
+    organization({ creatorRole: "owner", sendInvitationEmail }),
     magicLink({ sendMagicLink: sendMagicLinkEmail }),
     nextCookies(),
   ],

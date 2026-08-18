@@ -1,20 +1,30 @@
 "use client";
 
-import { useState } from "react";
+import { Suspense, useState } from "react";
+import { useSearchParams } from "next/navigation";
 import { authClient } from "@/lib/auth/client";
 
 export default function SignInPage() {
+  return (
+    <Suspense>
+      <SignInForm />
+    </Suspense>
+  );
+}
+
+function SignInForm() {
   const [email, setEmail] = useState("");
   const [status, setStatus] = useState<"idle" | "sending" | "sent" | "error">("idle");
+  const callbackURL = useSearchParams().get("next") || "/dashboard";
 
   const sendMagicLink = async (e: React.FormEvent) => {
     e.preventDefault();
     setStatus("sending");
-    const { error } = await authClient.signIn.magicLink({ email, callbackURL: "/dashboard" });
+    const { error } = await authClient.signIn.magicLink({ email, callbackURL });
     setStatus(error ? "error" : "sent");
   };
 
-  const signInWithGoogle = () => authClient.signIn.social({ provider: "google", callbackURL: "/dashboard" });
+  const signInWithGoogle = () => authClient.signIn.social({ provider: "google", callbackURL });
 
   return (
     <div className="flex min-h-screen items-center justify-center bg-zinc-50 p-6">
