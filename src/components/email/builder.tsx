@@ -85,7 +85,7 @@ function ComponentVisual({ node, selectedId, onSelect }: { node: EmailComponent;
     case "divider": return wrap(<hr className="my-2 border-zinc-200" />);
     case "spacer": return wrap(<div style={{ height: String(p.height ?? "24px") }} />);
     case "html": return wrap(<div className="rounded border border-dashed border-zinc-300 bg-zinc-50 p-4 text-xs text-zinc-500">Custom HTML block</div>);
-    case "section": return wrap(<div className="space-y-4" style={{ backgroundColor: String(p.backgroundColor ?? "#ffffff"), paddingTop: String(p.paddingTop ?? "24px"), paddingBottom: String(p.paddingBottom ?? "24px"), paddingLeft: "24px", paddingRight: "24px" }}>{node.children?.map(child => <ComponentVisual key={child.id} node={child} selectedId={selectedId} onSelect={onSelect} />)}</div>);
+    case "section": return wrap(<div className="flex flex-wrap" style={{ backgroundColor: String(p.backgroundColor ?? "#ffffff"), paddingTop: String(p.paddingTop ?? "24px"), paddingBottom: String(p.paddingBottom ?? "24px"), paddingLeft: "24px", paddingRight: "24px" }}>{node.children?.map(child => <div key={child.id} style={{ width: child.props?.width ? String(child.props.width) : undefined, minWidth: 0, flex: child.props?.width ? "0 0 auto" : "1 1 0%" }}><ComponentVisual node={child} selectedId={selectedId} onSelect={onSelect} /></div>)}</div>);
     case "column":
     case "group":
     case "hero":
