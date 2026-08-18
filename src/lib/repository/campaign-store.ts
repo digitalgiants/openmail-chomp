@@ -5,6 +5,7 @@ import { campaignEvents, campaignRecipients, campaignRenderings, campaigns, cont
 import { getEmail } from "./email-store";
 import { renderDocument } from "@/lib/email/render";
 import { getDeliveryProvider } from "@/lib/delivery";
+import type { EmailMessage } from "@/lib/delivery/types";
 
 export interface QuickSendResult {
   campaignId: string;
@@ -47,6 +48,10 @@ export async function sendQuickEmail(organizationId: string, emailId: string, re
   const uniqueEmails = [...new Set(recipientEmails.map(e => e.trim().toLowerCase()).filter(Boolean))];
   const results: QuickSendResult["results"] = [];
 
+  // Resolve every recipient and create their campaignRecipients row first
+  // (local DB round-trips, fast even for large lists). Unsubscribed
+  // contacts are skipped immediately and never enter the send queue.
+  const toSend: { recipientEmail: string; recipientRowId: string; message: EmailMessage }[] = [];
   for (const recipientEmail of uniqueEmails) {
     const contact = await upsertContactByEmail(organizationId, recipientEmail);
     const [recipient] = await db.insert(campaignRecipients).values({
@@ -66,15 +71,35 @@ export async function sendQuickEmail(organizationId: string, emailId: string, re
     }
 
     const unsubscribeUrl = `${process.env.BETTER_AUTH_URL}/unsubscribe?contact=${contact.id}`;
+    toSend.push({
+      recipientEmail,
+      recipientRowId: recipient.id,
+      message: { from, to: [recipientEmail], subject, html: withUnsubscribeFooter(html, unsubscribeUrl) },
+    });
+  }
+
+  // Actual delivery goes through Resend's batch endpoint (up to 100
+  // messages per call) instead of one HTTP round-trip per recipient --
+  // for a real-sized list, that's the difference between a handful of
+  // requests and potentially thousands, which is what actually risked
+  // request timeouts and rate limits before.
+  const BATCH_SIZE = 100;
+  for (let i = 0; i < toSend.length; i += BATCH_SIZE) {
+    const chunk = toSend.slice(i, i + BATCH_SIZE);
     try {
-      await provider.send({ from, to: [recipientEmail], subject, html: withUnsubscribeFooter(html, unsubscribeUrl) });
-      await db.update(campaignRecipients).set({ status: "sent" }).where(eq(campaignRecipients.id, recipient.id));
-      await db.insert(campaignEvents).values({ campaignId: campaign.id, campaignRecipientId: recipient.id, eventType: "sent" });
-      results.push({ email: recipientEmail, status: "sent" });
+      await provider.sendBatch(chunk.map(c => c.message));
+      for (const c of chunk) {
+        await db.update(campaignRecipients).set({ status: "sent" }).where(eq(campaignRecipients.id, c.recipientRowId));
+        await db.insert(campaignEvents).values({ campaignId: campaign.id, campaignRecipientId: c.recipientRowId, eventType: "sent" });
+        results.push({ email: c.recipientEmail, status: "sent" });
+      }
     } catch (error) {
-      await db.update(campaignRecipients).set({ status: "failed" }).where(eq(campaignRecipients.id, recipient.id));
-      await db.insert(campaignEvents).values({ campaignId: campaign.id, campaignRecipientId: recipient.id, eventType: "failed", metadata: { error: error instanceof Error ? error.message : String(error) } });
-      results.push({ email: recipientEmail, status: "failed", error: error instanceof Error ? error.message : "Send failed" });
+      const message = error instanceof Error ? error.message : "Send failed";
+      for (const c of chunk) {
+        await db.update(campaignRecipients).set({ status: "failed" }).where(eq(campaignRecipients.id, c.recipientRowId));
+        await db.insert(campaignEvents).values({ campaignId: campaign.id, campaignRecipientId: c.recipientRowId, eventType: "failed", metadata: { error: message } });
+        results.push({ email: c.recipientEmail, status: "failed", error: message });
+      }
     }
   }
 
