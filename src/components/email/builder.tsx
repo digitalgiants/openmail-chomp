@@ -262,7 +262,7 @@ export function Builder({ initialDocument, emailId }: { initialDocument: EmailDo
 function BlockLibrary({ onClose, onInsert }: { onClose: () => void; onInsert: (id: string) => void }) {
   const [items, setItems] = useState<Array<{ id: string; name: string; description?: string; category?: string; version: number; component: EmailComponent }>>([]);
   const [q, setQ] = useState(""); const [category, setCategory] = useState("All");
-  useEffect(() => { fetch("/api/blocks").then(r => r.json()).then(setItems); }, []);
+  useEffect(() => { fetch("/api/blocks").then(r => r.ok ? r.json() : []).then(setItems).catch(() => setItems([])); }, []);
   const categories = ["All", ...Array.from(new Set(items.map(x => x.category || "General"))).sort()];
   const filtered = items.filter(x => (category === "All" || (x.category || "General") === category) && `${x.name} ${x.description ?? ""} ${x.category ?? ""}`.toLowerCase().includes(q.toLowerCase()));
   return <div className="pointer-events-none fixed inset-0 z-50 flex items-center justify-center bg-black/30 p-6">

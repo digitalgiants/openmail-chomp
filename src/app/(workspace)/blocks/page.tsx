@@ -10,7 +10,7 @@ interface Block { id:string; name:string; description?:string; category?:string;
 export default function BlocksPage(){
   const [items,setItems]=useState<Block[]>([]); const [q,setQ]=useState(""); const [category,setCategory]=useState("All");
   const [editing,setEditing]=useState<Block|null>(null); const [historyBlock,setHistoryBlock]=useState<Block|null>(null);
-  const load=()=>fetch("/api/blocks").then(r=>r.json()).then(setItems);
+  const load=()=>fetch("/api/blocks").then(r=>r.ok?r.json():[]).then(setItems).catch(()=>setItems([]));
   useEffect(()=>{load()},[]);
   const categories=useMemo(()=>["All",...Array.from(new Set(items.map(b=>b.category||"General"))).sort()],[items]);
   const filtered=items.filter(b=>(category==="All"||(b.category||"General")===category)&&`${b.name} ${b.description??""} ${b.category??""}`.toLowerCase().includes(q.toLowerCase()));

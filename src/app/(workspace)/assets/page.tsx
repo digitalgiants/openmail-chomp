@@ -6,7 +6,7 @@ function formatBytes(n: number) { if (n < 1024) return `${n} B`; if (n < 1024 * 
 
 export default function AssetsPage() {
   const [assets, setAssets] = useState<AssetRecord[]>([]); const [query, setQuery] = useState(""); const [selected, setSelected] = useState<AssetRecord | null>(null); const [uploading, setUploading] = useState(false); const [dragging, setDragging] = useState(false); const input = useRef<HTMLInputElement>(null);
-  const load = async () => { const r = await fetch("/api/assets", { cache: "no-store" }); const d = await r.json(); setAssets(d.assets ?? []); };
+  const load = async () => { try { const r = await fetch("/api/assets", { cache: "no-store" }); const d = r.ok ? await r.json() : {}; setAssets(d.assets ?? []); } catch { setAssets([]); } };
   useEffect(() => { load(); }, []);
   const filtered = useMemo(() => assets.filter(a => a.filename.toLowerCase().includes(query.toLowerCase())), [assets, query]);
   async function upload(files: FileList | File[]) { const list = Array.from(files); if (!list.length) return; setUploading(true); for (const file of list) { const form = new FormData(); form.append("file", file); const r = await fetch("/api/assets", { method: "POST", body: form }); if (!r.ok) { const d = await r.json().catch(() => ({})); alert(d.error ?? `Could not upload ${file.name}`); } } await load(); setUploading(false); }

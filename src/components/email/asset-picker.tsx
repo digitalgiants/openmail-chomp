@@ -4,7 +4,7 @@ import { createPortal } from "react-dom";
 import type { AssetRecord } from "@/lib/assets/types";
 export function AssetPicker({ value, onChange }: { value?: string | null; onChange: (asset: AssetRecord) => void }) {
   const [open, setOpen] = useState(false); const [assets, setAssets] = useState<AssetRecord[]>([]); const [q, setQ] = useState(""); const input = useRef<HTMLInputElement>(null);
-  const load = async () => { const r = await fetch("/api/assets", { cache: "no-store" }); const d = await r.json(); setAssets(d.assets ?? []); };
+  const load = async () => { try { const r = await fetch("/api/assets", { cache: "no-store" }); const d = r.ok ? await r.json() : {}; setAssets(d.assets ?? []); } catch { setAssets([]); } };
   useEffect(() => { if (open) load(); }, [open]);
   async function upload(file?: File) { if (!file) return; const f = new FormData(); f.append("file", file); const r = await fetch("/api/assets", { method: "POST", body: f }); if (r.ok) { const d = await r.json(); onChange(d.asset); setOpen(false); } }
   const selected = assets.find(a => a.id === value);

@@ -4,7 +4,7 @@ import type { StoredLink } from "@/lib/repository/link-store";
 
 export default function PageComponent() {
   const [links, setLinks] = useState<StoredLink[]>([]); const [open, setOpen] = useState(false); const [editing, setEditing] = useState<StoredLink | null>(null);
-  const load = async () => { const r = await fetch("/api/links", { cache: "no-store" }); const d = await r.json(); setLinks(d.links ?? []); };
+  const load = async () => { try { const r = await fetch("/api/links", { cache: "no-store" }); const d = r.ok ? await r.json() : {}; setLinks(d.links ?? []); } catch { setLinks([]); } };
   useEffect(() => { load(); }, []);
   async function save(e: React.FormEvent<HTMLFormElement>) { e.preventDefault(); const form = new FormData(e.currentTarget); const body = Object.fromEntries(form.entries()); const r = await fetch(editing ? `/api/links/${editing.id}` : "/api/links", { method: editing ? "PATCH" : "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ...body, trackingEnabled: true }) }); if (r.ok) { setOpen(false); setEditing(null); load(); } }
   async function remove(id: string) { if (!confirm("Delete this link?")) return; await fetch(`/api/links/${id}`, { method: "DELETE" }); load(); }

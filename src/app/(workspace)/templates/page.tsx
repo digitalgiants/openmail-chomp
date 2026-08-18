@@ -7,7 +7,7 @@ import type { EmailDocument } from "@/lib/email";
 interface Template { id:string; name:string; description?:string; category?:string; document:EmailDocument; version:number; createdAt:string; }
 export default function TemplatesPage(){
   const [items,setItems]=useState<Template[]>([]); const [q,setQ]=useState("");
-  useEffect(()=>{fetch("/api/templates").then(r=>r.json()).then(setItems)},[]);
+  useEffect(()=>{fetch("/api/templates").then(r=>r.ok?r.json():[]).then(setItems).catch(()=>setItems([]))},[]);
   const useTemplate=async(t:Template)=>{const r=await fetch("/api/emails",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({name:t.name,subject:t.document.metadata.subject,previewText:t.document.metadata.previewText,document:structuredClone(t.document)})});if(r.ok){const e=await r.json();location.href=`/emails/${e.id}/builder`}};
   const remove=async(id:string)=>{if(!confirm("Delete this template?"))return;await fetch(`/api/templates/${id}`,{method:"DELETE"});setItems(x=>x.filter(i=>i.id!==id))};
   const filtered=items.filter(t=>`${t.name} ${t.description??""} ${t.category??""}`.toLowerCase().includes(q.toLowerCase()));
