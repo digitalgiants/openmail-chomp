@@ -18,9 +18,11 @@ Be aware of this before you go looking for something that isn't there yet:
 ## Prerequisites
 
 - Node.js 20+
-- Docker Desktop (for local Postgres) — or point `DATABASE_URL` at a Postgres instance you already have
+- Docker (or Podman with the Docker CLI shim) — for local Postgres in dev, or to run the whole stack in containers. See [Running the whole stack in containers](#running-the-whole-stack-in-containers) below.
 
-## Quick start
+## Quick start (host dev)
+
+This runs the Next.js dev server directly on your machine against a containerized Postgres — fastest iteration loop, hot reload included.
 
 ```bash
 npm install
@@ -31,6 +33,8 @@ npm run dev
 ```
 
 Visit `http://localhost:3000/sign-in`. With no `RESEND_API_KEY` set, magic links are printed to your terminal instead of emailed — copy the URL from the server log into your browser to sign in. The first sign-in auto-creates a workspace (organization) and makes you its owner.
+
+If you want the app itself running in a container too (matching production), skip to [Running the whole stack in containers](#running-the-whole-stack-in-containers).
 
 ## Environment variables
 
@@ -142,6 +146,65 @@ With `STORAGE_PROVIDER` set to anything other than `r2` (or unset), uploads fall
 
 ---
 
+## Running the whole stack in containers
+
+`docker-compose.yml` at the repo root runs both the app (built from the included `Dockerfile`, multi-stage, Next's `output: "standalone"`) and Postgres. This is the deployment-shaped setup — use it on a real host (e.g. an RHEL box behind Caddy), not just local dev.
+
+```bash
+cp .env.example .env        # fill in real values — this is what the app container reads
+npm run docker:build         # docker compose build
+npm run docker:up            # docker compose up -d
+npm run docker:db:push       # docker compose exec app npm run db:push — applies the schema
+npm run docker:logs          # docker compose logs -f app
+```
+
+The app listens on **`127.0.0.1:6567`** on the host — loopback only, not exposed to the network directly. Point your reverse proxy at it. A minimal Caddyfile entry:
+
+```
+mail.yourdomain.com {
+  reverse_proxy 127.0.0.1:6567
+}
+```
+
+Set `BETTER_AUTH_URL` in `.env` to that public URL (`https://mail.yourdomain.com`) before starting the stack — it's what both the Google OAuth redirect and magic-link URLs are built from. If Caddy runs on a different host or its own container/network and can't reach `127.0.0.1` on this machine, change the `app.ports` binding in `docker-compose.yml` accordingly (e.g. drop the `127.0.0.1:` prefix, or attach both to a shared Docker network and skip publishing a host port entirely).
+
+**Postgres is not exposed to the host at all** — no `ports:` entry on that service. Only the `app` container can reach it, over the internal compose network at `postgres:5432`. This also means `npm run db:push`/`db:migrate` from your host won't work against the containerized database anymore — run them inside the container instead (`npm run docker:db:push`, or `docker compose exec app npm run db:migrate`).
+
+### SELinux (RHEL 10.1 and similar)
+
+Both bind-mounted volumes carry the `:Z` SELinux label:
+
+```yaml
+volumes:
+  - ./data/postgres:/var/lib/postgresql/data:Z    # postgres service
+  - ./data/uploads:/app/data/uploads:Z             # app service
+```
+
+`:Z` relabels the host directory for exclusive use by the mounting container (as opposed to `:z`, shared across multiple containers) — required under SELinux-enforcing hosts or the container will get `Permission denied` trying to write to it. Named/managed Docker volumes don't need this (the engine sets their SELinux context automatically); it's specifically bind mounts of host paths — like both of these — that need it spelled out.
+
+If Postgres still fails to start with a permissions error the first time, it's almost always host-directory ownership rather than SELinux — the bind-mount target must be writable by the `postgres` container's internal UID (999 in the official image):
+
+```bash
+sudo chown -R 999:999 data/postgres
+```
+
+`data/uploads` is only actually written to when `STORAGE_PROVIDER` is unset or not `r2` (see [Cloudflare R2](#cloudflare-r2-asset-storage)) — with R2 configured it stays empty, but the mount and its label are harmless either way.
+
+### Local dev against the containerized DB
+
+Because Postgres has no published port in the committed `docker-compose.yml`, host-based `npm run dev` (the [Quick start](#quick-start-host-dev) above) can't reach a database brought up via `npm run docker:up`. If you want hot-reloading host-side dev against a container Postgres you can still reach, add a git-ignored `docker-compose.override.yml` with:
+
+```yaml
+services:
+  postgres:
+    ports:
+      - "127.0.0.1:5432:5432"
+```
+
+Compose merges override files automatically, so this never touches the committed file or the "don't expose the database" behavior of the base setup — it only affects your own machine.
+
+---
+
 ## Architecture notes
 
 - **Document model**: emails, templates, and blocks are all JSON trees of typed `EmailComponent` nodes (`src/lib/email/types.ts`), compiled to MJML then to HTML (`src/lib/email/render.ts`).
@@ -156,7 +219,11 @@ With `STORAGE_PROVIDER` set to anything other than `r2` (or unset), uploads fall
 | `npm run dev` | Start the dev server |
 | `npm run build` / `npm run start` | Production build / run |
 | `npm run lint` | ESLint |
-| `npm run db:up` / `db:down` | Start/stop local Postgres via Docker |
+| `npm run db:up` / `db:down` | Start/stop local Postgres via Docker (host dev) |
 | `npm run db:push` | Push schema to the database directly (dev) |
 | `npm run db:generate` / `db:migrate` | Generate and apply versioned SQL migrations |
 | `npm run auth:generate` | Regenerate Better-Auth's Drizzle schema from `src/lib/auth/auth.ts` |
+| `npm run docker:build` | Build the app image (`docker compose build`) |
+| `npm run docker:up` / `docker:down` | Start/stop the full app + Postgres stack |
+| `npm run docker:logs` | Tail the app container's logs |
+| `npm run docker:db:push` | Push the schema from inside the running app container |

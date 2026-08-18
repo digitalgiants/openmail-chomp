@@ -10,3 +10,6 @@ coverage
 .data/
 data/uploads/*
 !data/uploads/.gitkeep
+data/postgres/*
+!data/postgres/.gitkeep
+docker-compose.override.yml

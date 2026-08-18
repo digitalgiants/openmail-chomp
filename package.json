@@ -12,7 +12,12 @@
     "db:push": "drizzle-kit push",
     "db:up": "docker compose up -d",
     "db:down": "docker compose down",
-    "auth:generate": "better-auth generate --config src/lib/auth/auth.ts --output src/db/auth-schema.ts -y"
+    "auth:generate": "better-auth generate --config src/lib/auth/auth.ts --output src/db/auth-schema.ts -y",
+    "docker:build": "docker compose build",
+    "docker:up": "docker compose up -d",
+    "docker:down": "docker compose down",
+    "docker:logs": "docker compose logs -f app",
+    "docker:db:push": "docker compose exec app npm run db:push"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "latest",
