@@ -9,6 +9,7 @@ interface Campaign {
   status: string;
   createdAt: string;
   recipientCounts: Record<string, number>;
+  engagement: { opened: number; clicked: number };
 }
 
 interface CampaignRecipient {
@@ -17,6 +18,8 @@ interface CampaignRecipient {
   firstName?: string | null;
   lastName?: string | null;
   status: string;
+  opened: boolean;
+  clicked: boolean;
 }
 
 interface CampaignDetail extends Campaign {
@@ -80,6 +83,7 @@ export default function CampaignsPage() {
                   <th className="px-5 py-3 font-medium">Campaign</th>
                   <th className="px-5 py-3 font-medium">Status</th>
                   <th className="px-5 py-3 font-medium">Recipients</th>
+                  <th className="px-5 py-3 font-medium">Engagement</th>
                   <th className="px-5 py-3 font-medium">Sent</th>
                 </tr>
               </thead>
@@ -92,6 +96,7 @@ export default function CampaignsPage() {
                     </td>
                     <td className="px-5 py-3"><span className={`rounded-full px-2.5 py-1 text-[10px] font-semibold uppercase ${statusColor[c.status] ?? "bg-zinc-100 text-zinc-500"}`}>{c.status}</span></td>
                     <td className="px-5 py-3 text-zinc-500">{summarize(c.recipientCounts)}</td>
+                    <td className="px-5 py-3 text-zinc-500">{c.engagement.opened} opened, {c.engagement.clicked} clicked</td>
                     <td className="px-5 py-3 text-zinc-500">{new Date(c.createdAt).toLocaleString()}</td>
                   </tr>
                 ))}
@@ -112,7 +117,11 @@ export default function CampaignsPage() {
                   {detail.recipients.map(r => (
                     <div key={r.id} className="flex items-center justify-between rounded-lg border p-2.5 text-sm">
                       <span>{[r.firstName, r.lastName].filter(Boolean).join(" ") || r.email}</span>
-                      <span className={`rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase ${statusColor[r.status] ?? "bg-zinc-100 text-zinc-500"}`}>{r.status}</span>
+                      <div className="flex items-center gap-1.5">
+                        {r.opened && <span className="rounded-full bg-blue-50 px-2 py-0.5 text-[10px] font-semibold uppercase text-blue-700">Opened</span>}
+                        {r.clicked && <span className="rounded-full bg-violet-50 px-2 py-0.5 text-[10px] font-semibold uppercase text-violet-700">Clicked</span>}
+                        <span className={`rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase ${statusColor[r.status] ?? "bg-zinc-100 text-zinc-500"}`}>{r.status}</span>
+                      </div>
                     </div>
                   ))}
                 </div>

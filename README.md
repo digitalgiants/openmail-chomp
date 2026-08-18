@@ -15,7 +15,8 @@ Be aware of this before you go looking for something that isn't there yet:
 | Contacts | Working — CRUD, org-scoped. Contact Lists too: create/rename/delete a list, add/remove members, and select a whole list as recipients from the builder's Send modal. |
 | Sending | Working, from the builder's "Send" button or the Campaigns page (`getDeliveryProvider()` now backed by Resend). Recipients not already a contact get auto-created as one. Every send appends a per-recipient unsubscribe link and skips contacts already marked unsubscribed. Sends go through Resend's batch endpoint in chunks of 100 rather than one request per recipient — needed for real list sizes, but the exact batch response shape hasn't been exercised against the live API from this environment, so verify a real multi-recipient send. No scheduling yet. |
 | Unsubscribe | Working — public `/unsubscribe?contact={id}` page (no auth, since the recipient clicking it isn't signed in), requires an explicit confirm click rather than unsubscribing on GET (email security scanners prefetch links). |
-| Campaigns page | Working — lists every send (from the builder's Send button or composed here directly) with per-recipient status, plus a "New Campaign" flow to pick an email + contacts/lists without opening the builder. No scheduling or bulk batching yet. |
+| Campaigns page | Working — lists every send (from the builder's Send button or composed here directly) with per-recipient status and engagement (opened/clicked), plus a "New Campaign" flow to pick an email + contacts/lists without opening the builder. No scheduling yet. |
+| Open/click tracking | Working for clicks: any button/image link picked via the LinkPicker (i.e. tied to a saved Link, not free-typed) gets rewritten to a `/api/r/{recipientId}/{linkId}` redirect that logs the click and then forwards to the real destination. Opens/deliveries/bounces require Resend webhooks — set `RESEND_WEBHOOK_SECRET` and point a webhook at `/api/webhooks/resend` (see `.env.example`). The webhook's Svix signature verification is implemented per spec but hasn't been exercised against a real Resend delivery from this environment — verify with a live send before relying on it. Free-typed links (no LinkPicker) are never tracked, by design. |
 
 ## Prerequisites
 
@@ -55,6 +56,7 @@ R2_PUBLIC_BASE_URL=
 DELIVERY_PROVIDER=resend
 RESEND_API_KEY=
 EMAIL_FROM=
+RESEND_WEBHOOK_SECRET=
 
 BETTER_AUTH_SECRET=
 BETTER_AUTH_URL=http://localhost:3000
@@ -127,6 +129,16 @@ Used to actually deliver the sign-in email instead of just logging the link to y
 4. Set `EMAIL_FROM` to an address on your verified domain, e.g. `VaultFoundry <noreply@yourdomain.com>`.
 
 This same `RESEND_API_KEY` also powers actual email sending: magic-link/invitation emails (`src/lib/auth/email.ts`) and the builder's "Send" button (`src/lib/delivery/resend.ts`, selected via `DELIVERY_PROVIDER=resend`) are separate code paths that both read this one key.
+
+### Resend webhooks (open/click/bounce tracking)
+
+Click tracking on links you pick via the LinkPicker works without any webhook — it goes through this app's own `/api/r/{recipientId}/{linkId}` redirect. Opens, deliveries, and bounces come from Resend itself and need a webhook:
+
+1. In the Resend dashboard, go to **Webhooks → Add Endpoint**.
+2. Endpoint URL: `{BETTER_AUTH_URL}/api/webhooks/resend` (must be a real, publicly reachable HTTPS URL — this won't work against `localhost`).
+3. Subscribe to the `email.delivered`, `email.opened`, `email.clicked`, `email.bounced`, and `email.complained` events (or whichever subset you care about — unhandled event types are ignored).
+4. Copy the **Signing Secret** it gives you (starts with `whsec_`) into `RESEND_WEBHOOK_SECRET` in `.env`.
+5. Open tracking specifically also needs to be turned on for the domain/API key in Resend's own settings — the webhook alone won't produce `email.opened` events if that's off.
 
 ### Cloudflare R2 (asset storage)
 

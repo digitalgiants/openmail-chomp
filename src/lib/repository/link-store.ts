@@ -32,3 +32,11 @@ export async function deleteLink(organizationId: string, id: string) {
   const deleted = await db.delete(links).where(and(eq(links.id, id), eq(links.organizationId, organizationId))).returning({ id: links.id });
   return deleted.length > 0;
 }
+
+// Unauthenticated-by-design — the recipient clicking a tracked link in
+// their email isn't signed into the app, same reasoning as
+// getContactById in contact-store.ts.
+export async function getLinkById(id: string) {
+  const [row] = await db.select().from(links).where(eq(links.id, id));
+  return row ?? null;
+}
