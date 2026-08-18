@@ -32,3 +32,17 @@ export async function deleteContact(organizationId: string, id: string) {
   const deleted = await db.delete(contacts).where(and(eq(contacts.id, id), eq(contacts.organizationId, organizationId))).returning({ id: contacts.id });
   return deleted.length > 0;
 }
+
+// Unauthenticated-by-design lookups for the public /unsubscribe flow — the
+// recipient clicking the link in their email isn't signed into the app at
+// all, and the contact's id (a UUID primary key) is already globally
+// unique, so no organizationId scoping is needed or available here.
+export async function getContactById(id: string) {
+  const [row] = await db.select().from(contacts).where(eq(contacts.id, id));
+  return row ?? null;
+}
+
+export async function unsubscribeContactById(id: string) {
+  const [row] = await db.update(contacts).set({ status: "unsubscribed", updatedAt: new Date() }).where(eq(contacts.id, id)).returning();
+  return row ?? null;
+}

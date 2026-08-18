@@ -31,6 +31,6 @@ export async function updateAsset(organizationId: string, id: string, patch: Par
 }
 
 export async function deleteAsset(organizationId: string, id: string) {
-  const deleted = await db.delete(assets).where(and(eq(assets.id, id), eq(assets.organizationId, organizationId))).returning({ id: assets.id });
-  return deleted.length > 0;
+  const [deleted] = await db.delete(assets).where(and(eq(assets.id, id), eq(assets.organizationId, organizationId))).returning();
+  return deleted ?? null;
 }

@@ -330,14 +330,17 @@ function BlockLibrary({ onClose, onInsert }: { onClose: () => void; onInsert: (i
   </div>;
 }
 
-interface SendContact { id: string; email: string; firstName?: string | null; lastName?: string | null; }
+interface SendContact { id: string; email: string; firstName?: string | null; lastName?: string | null; status: string; }
+
+const resultLabel: Record<string, string> = { sent: "Sent", failed: "Failed", skipped: "Skipped (unsubscribed)" };
+const resultColor: Record<string, string> = { sent: "text-emerald-600", failed: "text-red-600", skipped: "text-zinc-400" };
 
 function SendModal({ emailId, onClose }: { emailId: string; onClose: () => void }) {
   const [contacts, setContacts] = useState<SendContact[]>([]);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [extra, setExtra] = useState("");
   const [status, setStatus] = useState<"idle" | "sending" | "done">("idle");
-  const [results, setResults] = useState<{ email: string; status: "sent" | "failed"; error?: string }[]>([]);
+  const [results, setResults] = useState<{ email: string; status: "sent" | "failed" | "skipped"; error?: string }[]>([]);
   const [error, setError] = useState("");
 
   useEffect(() => {
@@ -365,7 +368,7 @@ function SendModal({ emailId, onClose }: { emailId: string; onClose: () => void 
       {status === "done" ? (
         <div className="mt-5">
           <div className="space-y-1.5 max-h-64 overflow-auto">
-            {results.map(r => <div key={r.email} className="flex items-center justify-between rounded-lg border p-2.5 text-sm"><span>{r.email}</span><span className={r.status === "sent" ? "text-emerald-600" : "text-red-600"}>{r.status === "sent" ? "Sent" : `Failed${r.error ? `: ${r.error}` : ""}`}</span></div>)}
+            {results.map(r => <div key={r.email} className="flex items-center justify-between rounded-lg border p-2.5 text-sm"><span>{r.email}</span><span className={resultColor[r.status]}>{r.status === "failed" && r.error ? `Failed: ${r.error}` : resultLabel[r.status]}</span></div>)}
           </div>
           <button onClick={onClose} className="mt-5 w-full rounded-lg bg-zinc-900 px-4 py-2.5 text-sm font-semibold text-white">Done</button>
         </div>
@@ -374,11 +377,15 @@ function SendModal({ emailId, onClose }: { emailId: string; onClose: () => void 
           {contacts.length > 0 && <div className="mb-4">
             <div className="mb-2 text-xs font-semibold uppercase tracking-widest text-zinc-500">Contacts</div>
             <div className="max-h-48 space-y-1 overflow-auto rounded-lg border p-2">
-              {contacts.map(c => <label key={c.id} className="flex items-center gap-2.5 rounded p-1.5 text-sm hover:bg-zinc-50">
-                <input type="checkbox" checked={selected.has(c.email)} onChange={() => toggle(c.email)} />
-                <span>{[c.firstName, c.lastName].filter(Boolean).join(" ") || c.email}</span>
-                {(c.firstName || c.lastName) && <span className="text-zinc-400">{c.email}</span>}
-              </label>)}
+              {contacts.map(c => {
+                const unsubscribed = c.status === "unsubscribed";
+                return <label key={c.id} className={`flex items-center gap-2.5 rounded p-1.5 text-sm ${unsubscribed ? "opacity-50" : "hover:bg-zinc-50"}`}>
+                  <input type="checkbox" disabled={unsubscribed} checked={selected.has(c.email)} onChange={() => toggle(c.email)} />
+                  <span>{[c.firstName, c.lastName].filter(Boolean).join(" ") || c.email}</span>
+                  {(c.firstName || c.lastName) && <span className="text-zinc-400">{c.email}</span>}
+                  {unsubscribed && <span className="ml-auto text-[10px] uppercase tracking-wide text-zinc-400">Unsubscribed</span>}
+                </label>;
+              })}
             </div>
           </div>}
           <label className="block text-sm font-medium">Other recipients<span className="ml-1 font-normal text-zinc-400">(comma or newline separated)</span>

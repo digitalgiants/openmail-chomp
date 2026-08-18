@@ -8,7 +8,7 @@ import { getDeliveryProvider } from "@/lib/delivery";
 
 export interface QuickSendResult {
   campaignId: string;
-  results: { email: string; status: "sent" | "failed"; error?: string }[];
+  results: { email: string; status: "sent" | "failed" | "skipped"; error?: string }[];
 }
 
 async function upsertContactByEmail(organizationId: string, email: string) {
@@ -16,6 +16,11 @@ async function upsertContactByEmail(organizationId: string, email: string) {
   if (existing) return existing;
   const [created] = await db.insert(contacts).values({ organizationId, email }).returning();
   return created;
+}
+
+function withUnsubscribeFooter(html: string, unsubscribeUrl: string) {
+  const footer = `<div style="padding:16px;text-align:center;font-size:12px;color:#71717a;font-family:Arial,Helvetica,sans-serif;">You're receiving this email because you subscribed. <a href="${unsubscribeUrl}" style="color:#71717a;">Unsubscribe</a></div>`;
+  return html.includes("</body>") ? html.replace("</body>", `${footer}</body>`) : `${html}${footer}`;
 }
 
 export async function sendQuickEmail(organizationId: string, emailId: string, recipientEmails: string[]): Promise<QuickSendResult> {
@@ -53,8 +58,16 @@ export async function sendQuickEmail(organizationId: string, emailId: string, re
       status: "pending",
     }).returning();
 
+    if (contact.status === "unsubscribed") {
+      await db.update(campaignRecipients).set({ status: "skipped" }).where(eq(campaignRecipients.id, recipient.id));
+      await db.insert(campaignEvents).values({ campaignId: campaign.id, campaignRecipientId: recipient.id, eventType: "skipped", metadata: { reason: "unsubscribed" } });
+      results.push({ email: recipientEmail, status: "skipped", error: "Unsubscribed" });
+      continue;
+    }
+
+    const unsubscribeUrl = `${process.env.BETTER_AUTH_URL}/unsubscribe?contact=${contact.id}`;
     try {
-      await provider.send({ from, to: [recipientEmail], subject, html });
+      await provider.send({ from, to: [recipientEmail], subject, html: withUnsubscribeFooter(html, unsubscribeUrl) });
       await db.update(campaignRecipients).set({ status: "sent" }).where(eq(campaignRecipients.id, recipient.id));
       await db.insert(campaignEvents).values({ campaignId: campaign.id, campaignRecipientId: recipient.id, eventType: "sent" });
       results.push({ email: recipientEmail, status: "sent" });
@@ -65,8 +78,10 @@ export async function sendQuickEmail(organizationId: string, emailId: string, re
     }
   }
 
-  const anyFailed = results.some(r => r.status === "failed");
-  await db.update(campaigns).set({ status: anyFailed && results.every(r => r.status === "failed") ? "failed" : "sent", updatedAt: new Date() }).where(eq(campaigns.id, campaign.id));
+  const sentCount = results.filter(r => r.status === "sent").length;
+  const failedCount = results.filter(r => r.status === "failed").length;
+  const campaignStatus = sentCount > 0 ? "sent" : failedCount > 0 ? "failed" : "skipped";
+  await db.update(campaigns).set({ status: campaignStatus, updatedAt: new Date() }).where(eq(campaigns.id, campaign.id));
 
   return { campaignId: campaign.id, results };
 }
