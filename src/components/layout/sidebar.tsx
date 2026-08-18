@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-import { LayoutDashboard, Mail, PanelsTopLeft, Blocks, Image, Link2, Users, Send, Settings, LogOut } from "lucide-react";
+import { LayoutDashboard, Mail, PanelsTopLeft, Blocks, Image, Link2, Users, Send, Settings, LogOut, Globe } from "lucide-react";
 import { authClient } from "@/lib/auth/client";
 import { OrgSwitcher } from "./org-switcher";
 
@@ -11,7 +11,7 @@ const sections = [
     ["Dashboard", "/dashboard", LayoutDashboard], ["Emails", "/emails", Mail], ["Templates", "/templates", PanelsTopLeft], ["Blocks", "/blocks", Blocks], ["Assets", "/assets", Image], ["Links", "/links", Link2]
   ]},
   { label: "AUDIENCE", items: [["Contacts", "/contacts", Users], ["Campaigns", "/campaigns", Send]]},
-  { label: "SYSTEM", items: [["Settings", "/settings", Settings]] }
+  { label: "SYSTEM", items: [["Domains", "/domains", Globe], ["Settings", "/settings", Settings]] }
 ] as const;
 
 export function Sidebar() {
