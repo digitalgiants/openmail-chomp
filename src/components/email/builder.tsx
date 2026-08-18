@@ -123,6 +123,16 @@ export function Builder({ initialDocument, emailId }: { initialDocument: EmailDo
     commit({ ...document, children: mapNodes(document.children, selectedId, n => ({ ...n, props: { ...(n.props ?? {}), [key]: value } })) });
   };
 
+  // Merges multiple prop changes into a single commit. Calling updateNode
+  // several times in a row within one handler doesn't work for this: commit
+  // is memoized off the current `document` closure, not a functional state
+  // updater, so each call in the same synchronous handler overwrites the
+  // previous one's change instead of merging with it.
+  const updateNodeProps = (props: Record<string, unknown>) => {
+    if (!selectedId) return;
+    commit({ ...document, children: mapNodes(document.children, selectedId, n => ({ ...n, props: { ...(n.props ?? {}), ...props } })) });
+  };
+
   const updateStyle = (key: string, value: string) => {
     if (!selectedId) return;
     commit({ ...document, children: mapNodes(document.children, selectedId, n => ({ ...n, styles: { ...(n.styles ?? {}), [key]: value } })) });
@@ -243,7 +253,7 @@ export function Builder({ initialDocument, emailId }: { initialDocument: EmailDo
           </div>}
         </div>
       </div></main>
-      {showSettings ? <SettingsPanel document={document} commit={commit} onClose={() => setShowSettings(false)} /> : <Inspector selected={selected} updateNode={updateNode} updateStyle={updateStyle} addColumn={addColumn} duplicate={duplicateSelected} remove={deleteSelected} moveUp={() => selectedId && commit({ ...document, children: moveRoot(document.children, selectedId, -1) })} moveDown={() => selectedId && commit({ ...document, children: moveRoot(document.children, selectedId, 1) })} />}
+      {showSettings ? <SettingsPanel document={document} commit={commit} onClose={() => setShowSettings(false)} /> : <Inspector selected={selected} updateNode={updateNode} updateNodeProps={updateNodeProps} updateStyle={updateStyle} addColumn={addColumn} duplicate={duplicateSelected} remove={deleteSelected} moveUp={() => selectedId && commit({ ...document, children: moveRoot(document.children, selectedId, -1) })} moveDown={() => selectedId && commit({ ...document, children: moveRoot(document.children, selectedId, 1) })} />}
     </div>}
     {library === "blocks" && <BlockLibrary onClose={() => setLibrary(null)} onInsert={insertBlock} />}
   </div>;
@@ -266,15 +276,15 @@ function BlockLibrary({ onClose, onInsert }: { onClose: () => void; onInsert: (i
 
 function DeviceButton({active,onClick,children}:{active:boolean;onClick:()=>void;children:React.ReactNode}){return <button onClick={onClick} className={`rounded-md p-2 ${active ? "bg-zinc-900 text-white" : "text-zinc-500 hover:bg-zinc-100"}`}>{children}</button>}
 
-function Inspector({ selected, updateNode, updateStyle, addColumn, duplicate, remove, moveUp, moveDown }: { selected?: EmailComponent; updateNode:(k:string,v:unknown)=>void; updateStyle:(k:string,v:string)=>void; addColumn:()=>void; duplicate:()=>void; remove:()=>void; moveUp:()=>void; moveDown:()=>void }) {
+function Inspector({ selected, updateNode, updateNodeProps, updateStyle, addColumn, duplicate, remove, moveUp, moveDown }: { selected?: EmailComponent; updateNode:(k:string,v:unknown)=>void; updateNodeProps:(props:Record<string,unknown>)=>void; updateStyle:(k:string,v:string)=>void; addColumn:()=>void; duplicate:()=>void; remove:()=>void; moveUp:()=>void; moveDown:()=>void }) {
   if (!selected) return <aside className="w-72 shrink-0 border-l bg-white p-5"><div className="flex h-full flex-col items-center justify-center text-center text-sm text-zinc-500"><MousePointer2 className="mb-3 text-zinc-300"/><div className="font-medium text-zinc-700">Select a component</div><div className="mt-1 text-xs">Its properties will appear here.</div></div></aside>;
   const p = selected.props ?? {};
   return <aside className="w-72 shrink-0 overflow-auto border-l bg-white p-5"><div className="mb-4 flex items-start justify-between"><div><div className="text-[10px] font-bold uppercase tracking-widest text-zinc-500">Selected</div><div className="mt-1 text-lg font-semibold">{componentRegistry[selected.type].label}</div></div><button onClick={remove} className="rounded p-1.5 text-zinc-400 hover:bg-red-50 hover:text-red-600"><Trash2 size={16}/></button></div>
     <div className="mb-5 flex gap-1 rounded-lg bg-zinc-50 p-1"><button onClick={moveUp} className="flex-1 rounded p-1.5 hover:bg-white" title="Move up"><ChevronUp size={15} className="mx-auto"/></button><button onClick={moveDown} className="flex-1 rounded p-1.5 hover:bg-white" title="Move down"><ChevronDown size={15} className="mx-auto"/></button><button onClick={duplicate} className="flex-1 rounded p-1.5 hover:bg-white" title="Duplicate"><Copy size={15} className="mx-auto"/></button></div>
     {selected.type === "section" && <button onClick={addColumn} className="mb-5 flex w-full items-center justify-center gap-2 rounded-lg border border-dashed border-zinc-300 p-2 text-xs font-semibold hover:bg-zinc-50"><Plus size={14}/> Add column</button>}
     {selected.type === "text" || selected.type === "heading" || selected.type === "quote" ? <Field label="Content"><textarea value={String(p.content ?? "")} onChange={e => updateNode("content", e.target.value)} className="min-h-28 w-full rounded-lg border p-2 text-sm"/></Field> : null}
-    {selected.type === "button" ? <><Field label="Button text"><input value={String(p.text ?? "")} onChange={e=>updateNode("text",e.target.value)} /></Field><Field label="Link"><LinkPicker value={String(p.linkId ?? "")} onChange={l=>{updateNode("linkId",l.id);updateNode("href",l.destinationUrl)}} /></Field></> : null}
-    {selected.type === "image" ? <><Field label="Image"><AssetPicker value={String(p.assetId ?? "")} onChange={(asset:AssetRecord)=>{updateNode("assetId",asset.id);updateNode("assetUrl",asset.publicUrl);updateNode("alt",p.alt || asset.altText || "")}} /></Field><Field label="Alt text"><input value={String(p.alt ?? "")} onChange={e=>updateNode("alt",e.target.value)} /></Field><Field label="Link"><LinkPicker value={String(p.linkId ?? "")} onChange={l=>{updateNode("linkId",l.id);updateNode("href",l.destinationUrl)}} /></Field></> : null}
+    {selected.type === "button" ? <><Field label="Button text"><input value={String(p.text ?? "")} onChange={e=>updateNode("text",e.target.value)} /></Field><Field label="Link"><LinkPicker value={String(p.linkId ?? "")} onChange={l=>updateNodeProps({linkId:l.id,href:l.destinationUrl})} /></Field></> : null}
+    {selected.type === "image" ? <><Field label="Image"><AssetPicker value={String(p.assetId ?? "")} onChange={(asset:AssetRecord)=>updateNodeProps({assetId:asset.id,assetUrl:asset.publicUrl,alt:p.alt || asset.altText || ""})} /></Field><Field label="Alt text"><input value={String(p.alt ?? "")} onChange={e=>updateNode("alt",e.target.value)} /></Field><Field label="Link"><LinkPicker value={String(p.linkId ?? "")} onChange={l=>updateNodeProps({linkId:l.id,href:l.destinationUrl})} /></Field></> : null}
     {selected.type === "spacer" ? <Field label="Height"><input value={String(p.height ?? "24px")} onChange={e=>updateNode("height",e.target.value)} /></Field> : null}
     {selected.type === "html" ? <Field label="HTML"><textarea value={String(p.html ?? "")} onChange={e=>updateNode("html",e.target.value)} className="min-h-40 w-full rounded-lg border p-2 font-mono text-xs"/></Field> : null}
     {(selected.type === "text" || selected.type === "heading" || selected.type === "button") && <><div className="my-5 border-t"/><div className="mb-3 text-[10px] font-bold uppercase tracking-widest text-zinc-500">Appearance</div><Field label="Font size"><input value={String(selected.styles?.fontSize ?? "")} placeholder="16px" onChange={e=>updateStyle("fontSize",e.target.value)} /></Field><Field label="Color"><input value={String(selected.styles?.color ?? "")} placeholder="#18181b" onChange={e=>updateStyle("color",e.target.value)} /></Field></>}
