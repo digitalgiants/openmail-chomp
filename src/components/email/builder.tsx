@@ -551,7 +551,19 @@ function Inspector({ selected, updateNode, updateNodeProps, updateStyle, addColu
         </select>
       </Field>
       <Field label="Font size"><input value={String(selected.styles?.fontSize ?? "")} placeholder="16px" onChange={e=>updateStyle("fontSize",e.target.value)} /></Field>
-      <Field label="Color"><input value={String(selected.styles?.color ?? "")} placeholder="#18181b" onChange={e=>updateStyle("color",e.target.value)} /></Field>
+      <Field label="Color">
+        <div className="flex items-center gap-2">
+          {/* type="color" only accepts a bare #rrggbb -- falls back to
+              black rather than rejecting whatever free-form text (or
+              nothing) is currently in the paired text field. */}
+          <input type="color" value={/^#[0-9a-f]{6}$/i.test(String(selected.styles?.color ?? "")) ? String(selected.styles?.color) : "#000000"} onChange={e=>updateStyle("color",e.target.value)} className="h-9 w-9 shrink-0 cursor-pointer rounded border p-0.5" />
+          <input value={String(selected.styles?.color ?? "")} placeholder="#18181b" onChange={e=>updateStyle("color",e.target.value)} className="min-w-0 flex-1" />
+        </div>
+      </Field>
+      <label className="mb-4 flex items-center gap-2 text-xs font-semibold text-zinc-700">
+        <input type="checkbox" checked={selected.styles?.textDecoration === "line-through"} onChange={e=>updateStyle("textDecoration", e.target.checked ? "line-through" : "")} />
+        Strikethrough
+      </label>
     </>}
     <div className="mt-6 rounded-lg bg-zinc-50 p-3 text-[10px] text-zinc-500">Component ID<br/><code className="break-all text-zinc-700">{selected.id}</code></div>
   </aside>;

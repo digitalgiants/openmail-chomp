@@ -9,7 +9,7 @@ const esc = (value: unknown) => String(value ?? "").replace(/&/g, "&amp;").repla
 // assumed), so styles picked in the Inspector have to be translated into
 // each component's own first-class attributes instead of dumped into one
 // inline style string.
-const STYLE_ATTR_MAP: Record<string, string> = { fontFamily: "font-family", fontSize: "font-size", fontWeight: "font-weight", color: "color" };
+const STYLE_ATTR_MAP: Record<string, string> = { fontFamily: "font-family", fontSize: "font-size", fontWeight: "font-weight", color: "color", textDecoration: "text-decoration" };
 
 function styleAttrs(node: EmailComponent, defaults: Record<string, string> = {}): string {
   const merged = { ...defaults, ...(node.styles ?? {}) };
