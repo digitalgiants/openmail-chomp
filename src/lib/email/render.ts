@@ -3,7 +3,21 @@ import type { EmailComponent, EmailDocument } from "./types";
 import { groupColumnsIntoRows } from "./layout";
 
 const esc = (value: unknown) => String(value ?? "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
-const attrs = (styles?: Record<string, string>) => Object.entries(styles ?? {}).map(([k, v]) => `${k.replace(/[A-Z]/g, m => `-${m.toLowerCase()}`)}:${v}`).join(";");
+
+// mj-text/mj-button don't accept a generic `style` attribute -- MJML
+// rejects it outright (confirmed against the real mjml2html output, not
+// assumed), so styles picked in the Inspector have to be translated into
+// each component's own first-class attributes instead of dumped into one
+// inline style string.
+const STYLE_ATTR_MAP: Record<string, string> = { fontFamily: "font-family", fontSize: "font-size", fontWeight: "font-weight", color: "color" };
+
+function styleAttrs(node: EmailComponent, defaults: Record<string, string> = {}): string {
+  const merged = { ...defaults, ...(node.styles ?? {}) };
+  return Object.entries(merged).map(([k, v]) => {
+    const attr = STYLE_ATTR_MAP[k];
+    return attr && v ? ` ${attr}="${esc(v)}"` : "";
+  }).join("");
+}
 
 // The recipient token is a placeholder, not filled in here — the base
 // document only ever gets compiled once per campaign (compiling MJML per
@@ -18,7 +32,6 @@ export const RECIPIENT_TOKEN = "{{RID}}";
 // the builder's live preview and the plain /api/render endpoint, which
 // should show/link to the real destination while editing.
 function componentToMjml(node: EmailComponent, trackingBase?: string): string {
-  const style = attrs(node.styles);
   const p = node.props ?? {};
   const children = (node.children ?? []).map(child => componentToMjml(child, trackingBase)).join("");
   const trackedHref = (): string | undefined => {
@@ -50,15 +63,15 @@ function componentToMjml(node: EmailComponent, trackingBase?: string): string {
     }
     case "column": return `<mj-column${p.width ? ` width="${esc(p.width)}"` : ""}>${children}</mj-column>`;
     case "group": return `<mj-group>${children}</mj-group>`;
-    case "text": return `<mj-text${style ? ` style="${esc(style)}"` : ""}>${String(p.content ?? "")}</mj-text>`;
-    case "heading": return `<mj-text font-size="28px" font-weight="700"${style ? ` style="${esc(style)}"` : ""}>${String(p.content ?? "Your headline")}</mj-text>`;
+    case "text": return `<mj-text${styleAttrs(node)}>${String(p.content ?? "")}</mj-text>`;
+    case "heading": return `<mj-text${styleAttrs(node, { fontSize: "28px", fontWeight: "700" })}>${String(p.content ?? "Your headline")}</mj-text>`;
     case "image": {
       const src = p.assetUrl ?? p.src;
       if (!src) return `<mj-text color="#71717a" align="center">[ Image ]</mj-text>`;
       const href = trackedHref();
       return `<mj-image src="${esc(src)}" alt="${esc(p.alt)}"${href ? ` href="${esc(href)}"` : ""} />`;
     }
-    case "button": return `<mj-button href="${esc(trackedHref() ?? "#")}">${esc(p.text ?? "Learn More")}</mj-button>`;
+    case "button": return `<mj-button href="${esc(trackedHref() ?? "#")}"${styleAttrs(node)}>${esc(p.text ?? "Learn More")}</mj-button>`;
     case "divider": return `<mj-divider />`;
     case "spacer": return `<mj-spacer height="${esc(p.height ?? "24px")}" />`;
     case "html": return String(p.html ?? "");

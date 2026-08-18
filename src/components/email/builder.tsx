@@ -10,6 +10,22 @@ import type { AssetRecord } from "@/lib/assets/types";
 
 function uid(prefix: string) { return `${prefix}_${Math.random().toString(36).slice(2, 10)}`; }
 
+// Custom @font-face/Google Fonts aren't offered here on purpose -- Outlook
+// desktop (still a large share of business inboxes) doesn't support
+// @font-face at all, so a "custom font" picker would silently fail for a
+// chunk of recipients with no visible warning. These are the standard
+// web-safe stacks every major ESP sticks to for exactly that reason.
+const FONT_STACKS: { label: string; value: string }[] = [
+  { label: "Arial", value: "Arial, Helvetica, sans-serif" },
+  { label: "Georgia", value: "Georgia, 'Times New Roman', Times, serif" },
+  { label: "Times New Roman", value: "'Times New Roman', Times, serif" },
+  { label: "Trebuchet MS", value: "'Trebuchet MS', Helvetica, sans-serif" },
+  { label: "Verdana", value: "Verdana, Geneva, sans-serif" },
+  { label: "Tahoma", value: "Tahoma, Geneva, sans-serif" },
+  { label: "Courier New", value: "'Courier New', Courier, monospace" },
+  { label: "Palatino", value: "'Palatino Linotype', 'Book Antiqua', Palatino, serif" },
+];
+
 type Device = "desktop" | "tablet" | "mobile";
 
 const deviceWidths: Record<Device, number> = { desktop: 600, tablet: 480, mobile: 360 };
@@ -112,7 +128,7 @@ function ComponentVisual({ node, selectedId, onSelect }: { node: EmailComponent;
   switch (node.type) {
     case "heading": return wrap(<h1 className="text-3xl font-bold tracking-tight" style={node.styles}>{String(p.content ?? "Your headline")}</h1>);
     case "text": return wrap(<p className="whitespace-pre-wrap text-base leading-7 text-zinc-600" style={node.styles}>{String(p.content ?? "Start writing your email…")}</p>);
-    case "button": return wrap(<div className="py-2"><span className="inline-block rounded-lg bg-zinc-900 px-5 py-3 text-sm font-semibold text-white">{String(p.text ?? "Learn More")}</span></div>);
+    case "button": return wrap(<div className="py-2"><span className="inline-block rounded-lg bg-zinc-900 px-5 py-3 text-sm font-semibold text-white" style={node.styles}>{String(p.text ?? "Learn More")}</span></div>);
     case "image": return wrap(p.assetUrl ? <img src={String(p.assetUrl)} alt={String(p.alt ?? "")} className="max-h-96 w-full object-contain" style={node.styles} /> : <div className="flex h-40 items-center justify-center border border-dashed border-zinc-300 bg-zinc-50 text-sm text-zinc-400">Choose an image</div>);
     case "divider": return wrap(<hr className="my-2 border-zinc-200" />);
     case "spacer": return wrap(<div style={{ height: String(p.height ?? "24px") }} />);
@@ -169,7 +185,15 @@ export function Builder({ initialDocument, emailId }: { initialDocument: EmailDo
 
   const updateStyle = (key: string, value: string) => {
     if (!selectedId) return;
-    commit({ ...document, children: mapNodes(document.children, selectedId, n => ({ ...n, styles: { ...(n.styles ?? {}), [key]: value } })) });
+    commit({ ...document, children: mapNodes(document.children, selectedId, n => {
+      // An empty value (e.g. picking "Default" in a select) removes the
+      // override entirely rather than baking in an empty CSS declaration
+      // like "font-family:;" -- letting it actually fall back to the
+      // document-level default instead of just looking like it did.
+      const styles = { ...(n.styles ?? {}) };
+      if (value) styles[key] = value; else delete styles[key];
+      return { ...n, styles };
+    }) });
   };
 
   const saveAsTemplate = async () => {
@@ -519,7 +543,16 @@ function Inspector({ selected, updateNode, updateNodeProps, updateStyle, addColu
     {selected.type === "image" ? <><Field label="Image"><AssetPicker value={String(p.assetId ?? "")} onChange={(asset:AssetRecord)=>updateNodeProps({assetId:asset.id,assetUrl:asset.publicUrl,alt:p.alt || asset.altText || ""})} /></Field><Field label="Alt text"><input value={String(p.alt ?? "")} onChange={e=>updateNode("alt",e.target.value)} /></Field><Field label="Link"><LinkPicker value={String(p.linkId ?? "")} onChange={l=>updateNodeProps({linkId:l.id,href:l.destinationUrl})} /></Field></> : null}
     {selected.type === "spacer" ? <Field label="Height"><input value={String(p.height ?? "24px")} onChange={e=>updateNode("height",e.target.value)} /></Field> : null}
     {selected.type === "html" ? <Field label="HTML"><textarea value={String(p.html ?? "")} onChange={e=>updateNode("html",e.target.value)} className="min-h-40 w-full rounded-lg border p-2 font-mono text-xs"/></Field> : null}
-    {(selected.type === "text" || selected.type === "heading" || selected.type === "button") && <><div className="my-5 border-t"/><div className="mb-3 text-[10px] font-bold uppercase tracking-widest text-zinc-500">Appearance</div><Field label="Font size"><input value={String(selected.styles?.fontSize ?? "")} placeholder="16px" onChange={e=>updateStyle("fontSize",e.target.value)} /></Field><Field label="Color"><input value={String(selected.styles?.color ?? "")} placeholder="#18181b" onChange={e=>updateStyle("color",e.target.value)} /></Field></>}
+    {(selected.type === "text" || selected.type === "heading" || selected.type === "button") && <><div className="my-5 border-t"/><div className="mb-3 text-[10px] font-bold uppercase tracking-widest text-zinc-500">Appearance</div>
+      <Field label="Font family">
+        <select value={String(selected.styles?.fontFamily ?? "")} onChange={e=>updateStyle("fontFamily",e.target.value)}>
+          <option value="">Default (Arial)</option>
+          {FONT_STACKS.map(f => <option key={f.value} value={f.value}>{f.label}</option>)}
+        </select>
+      </Field>
+      <Field label="Font size"><input value={String(selected.styles?.fontSize ?? "")} placeholder="16px" onChange={e=>updateStyle("fontSize",e.target.value)} /></Field>
+      <Field label="Color"><input value={String(selected.styles?.color ?? "")} placeholder="#18181b" onChange={e=>updateStyle("color",e.target.value)} /></Field>
+    </>}
     <div className="mt-6 rounded-lg bg-zinc-50 p-3 text-[10px] text-zinc-500">Component ID<br/><code className="break-all text-zinc-700">{selected.id}</code></div>
   </aside>;
 }
