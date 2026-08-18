@@ -25,14 +25,18 @@ services:
   # One-off schema/migration runner. The `app` image is Next's pruned
   # `output: standalone` build and never has drizzle-kit or devDependencies
   # in it — this builds from the earlier `builder` stage instead, which has
-  # the full toolchain. Not started by `up`; invoke explicitly, e.g.:
+  # the full toolchain. Meant to be invoked explicitly, e.g.:
   #   podman-compose run --rm migrate npm run db:push
   #   podman-compose run --rm migrate npm run db:migrate
+  # No `profiles:` gate here on purpose — podman-compose has inconsistent
+  # support for profiles (has been seen to hide the service from `run` too,
+  # not just `up`). The default command (db:push) is idempotent and
+  # restart is "no", so it's harmless if `up` also starts this once and
+  # lets it exit.
   migrate:
     build:
       context: .
       target: builder
-    profiles: ["tools"]
     restart: "no"
     env_file:
       - .env
