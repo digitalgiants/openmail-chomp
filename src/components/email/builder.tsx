@@ -10,13 +10,18 @@ import type { AssetRecord } from "@/lib/assets/types";
 
 function uid(prefix: string) { return `${prefix}_${Math.random().toString(36).slice(2, 10)}`; }
 
-// Custom @font-face/Google Fonts aren't offered here on purpose -- Outlook
-// desktop (still a large share of business inboxes) doesn't support
-// @font-face at all, so a "custom font" picker would silently fail for a
-// chunk of recipients with no visible warning. These are the standard
-// web-safe stacks every major ESP sticks to for exactly that reason.
+// Most of these are plain web-safe stacks -- guaranteed to render as-is
+// everywhere, no email client actually needs to load anything. Roboto and
+// Red Hat Text are different: they're Google Fonts, loaded via a <link>
+// that render.ts's documentToMjml only injects for clients that support it
+// (Outlook desktop is deliberately excluded from even trying, via an
+// [if !mso] conditional comment MJML generates), falling back to the
+// second entry in the stack there instead. So on Outlook desktop these two
+// silently render as Arial/Helvetica -- not broken, just not the exact
+// chosen font for that one client.
 const FONT_STACKS: { label: string; value: string }[] = [
   { label: "Arial", value: "Arial, Helvetica, sans-serif" },
+  { label: "Helvetica", value: "Helvetica, Arial, sans-serif" },
   { label: "Georgia", value: "Georgia, 'Times New Roman', Times, serif" },
   { label: "Times New Roman", value: "'Times New Roman', Times, serif" },
   { label: "Trebuchet MS", value: "'Trebuchet MS', Helvetica, sans-serif" },
@@ -24,6 +29,8 @@ const FONT_STACKS: { label: string; value: string }[] = [
   { label: "Tahoma", value: "Tahoma, Geneva, sans-serif" },
   { label: "Courier New", value: "'Courier New', Courier, monospace" },
   { label: "Palatino", value: "'Palatino Linotype', 'Book Antiqua', Palatino, serif" },
+  { label: "Roboto", value: "'Roboto', Arial, sans-serif" },
+  { label: "Red Hat Text", value: "'Red Hat Text', Arial, sans-serif" },
 ];
 
 type Device = "desktop" | "tablet" | "mobile";

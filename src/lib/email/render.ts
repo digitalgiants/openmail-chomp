@@ -80,12 +80,25 @@ function componentToMjml(node: EmailComponent, trackingBase?: string): string {
   }
 }
 
+// MJML ships a default font map (Open Sans, Droid Sans, Lato, Roboto,
+// Ubuntu) and auto-injects a Google Fonts <link>/@import for any of them it
+// finds actually used in the compiled output -- wrapped in a conditional
+// comment that Outlook desktop's renderer skips entirely, so it always
+// falls back to the font stack's next entry there rather than breaking.
+// Roboto is covered by that default map already; fonts outside it (like
+// Red Hat Text here) need registering via <mj-font> to get the same
+// treatment.
+const EXTRA_GOOGLE_FONTS: Record<string, string> = {
+  "Red Hat Text": "https://fonts.googleapis.com/css?family=Red+Hat+Text:300,400,500,700",
+};
+
 export function documentToMjml(document: EmailDocument, trackingBase?: string) {
   const width = document.settings.width;
+  const extraFonts = Object.entries(EXTRA_GOOGLE_FONTS).map(([name, href]) => `<mj-font name="${esc(name)}" href="${esc(href)}" />`).join("");
   // width belongs on mj-body, not mj-wrapper (mj-wrapper doesn't accept
   // it -- MJML rejects it even under soft validation; it just also
   // doesn't refuse to render, so this went unnoticed).
-  return `<mjml><mj-head><mj-attributes><mj-all font-family="Arial, Helvetica, sans-serif" /></mj-attributes>${document.customCss ? `<mj-style>${document.customCss}</mj-style>` : ""}</mj-head><mj-body background-color="${esc(document.settings.backgroundColor)}" width="${width}px"><mj-wrapper background-color="${esc(document.settings.contentBackgroundColor)}">${document.children.map(child => componentToMjml(child, trackingBase)).join("")}</mj-wrapper></mj-body></mjml>`;
+  return `<mjml><mj-head>${extraFonts}<mj-attributes><mj-all font-family="Arial, Helvetica, sans-serif" /></mj-attributes>${document.customCss ? `<mj-style>${document.customCss}</mj-style>` : ""}</mj-head><mj-body background-color="${esc(document.settings.backgroundColor)}" width="${width}px"><mj-wrapper background-color="${esc(document.settings.contentBackgroundColor)}">${document.children.map(child => componentToMjml(child, trackingBase)).join("")}</mj-wrapper></mj-body></mjml>`;
 }
 
 export async function renderDocument(document: EmailDocument, options?: { trackingBase?: string }) {
